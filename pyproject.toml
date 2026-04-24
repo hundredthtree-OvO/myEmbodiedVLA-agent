@@ -1,0 +1,21 @@
+[project]
+name = "vla-study-agent"
+version = "0.1.0"
+description = "A CLI study agent for paper-to-code alignment notes."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+study-agent = "study_agent.cli:main"
+
+[tool.uv]
+package = false
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

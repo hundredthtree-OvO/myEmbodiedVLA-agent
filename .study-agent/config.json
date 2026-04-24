@@ -1,0 +1,9 @@
+{
+  "auth_path": "C:\\Users\\86157\\.codex\\auth.json",
+  "api_url": "https://chatgpt.com/backend-api/codex/responses",
+  "model": "gpt-5.5",
+  "timeout_seconds": 300,
+  "max_evidence_chars": 60000,
+  "max_history_examples": 3,
+  "zotero_data_dir": "E:\\zoteroData"
+}

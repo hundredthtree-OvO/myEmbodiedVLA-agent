@@ -1,0 +1,12 @@
+.venv/
+.tmp/
+__pycache__/
+*.pyc
+
+.study-agent/sessions/
+.study-agent/repos/
+.study-agent/codex-test.md
+.study-agent/feedback-reflection.md
+.study-agent/last-codex-output.md
+
+notes/*.tmp.md

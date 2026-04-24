@@ -1,0 +1,19 @@
+{
+  "analysis_template": "paper-aligned",
+  "preferred_sections": [
+    "任务与输入",
+    "论文核心概念解释",
+    "仓库入口与主干候选",
+    "论文模块 -> 代码模块映射",
+    "训练/推理主路径",
+    "关注点专项",
+    "建议阅读顺序",
+    "未确认点"
+  ],
+  "focus_bias": [],
+  "reading_order_style": "entrypoint-first",
+  "evidence_style": "CONFIRMED/INFERRED",
+  "terminology_preferences": {},
+  "depth_default": "module-function",
+  "verbosity": "medium"
+}
