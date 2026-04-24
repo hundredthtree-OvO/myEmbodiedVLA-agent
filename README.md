@@ -150,7 +150,7 @@ uv run python study_agent_cli.py feedback apply --from notes\demo-study-agent.md
 默认使用本机 Codex 登录凭据：
 
 ```text
-C:\Users\86157\.codex\auth.json
+C:\path\of\user\.codex\auth.json
 ```
 
 默认配置在：
