@@ -158,7 +158,7 @@ uv run python study_agent_cli.py cleanup --target all
 默认使用本机 Codex 登录凭据：
 
 ```text
-C:\Users\86157\.codex\auth.json
+C:\Users\name\.codex\auth.json
 ```
 
 默认配置文件：
