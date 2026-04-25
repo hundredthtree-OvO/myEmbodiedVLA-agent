@@ -8,7 +8,7 @@ from .analyzer.paper import analyze_paper
 from .cleanup import cleanup_after_analyze
 from .codex_client import assert_codex_ready, run_codex
 from .composer import compose_markdown
-from .config import load_config
+from .config import load_config, with_model
 from .ingest import ingest_paper, ingest_repo
 from .models import EvidencePack, StudyArtifact, StudyRequest
 from .planner import build_plan
@@ -36,6 +36,7 @@ def execute_analysis(
 ) -> AnalysisResult:
     progress = progress or NullProgress()
     config = config or load_config()
+    config = with_model(config, request.model)
 
     progress.stage("Resolving inputs")
     paper_source = request.paper_source
@@ -58,6 +59,7 @@ def execute_analysis(
         mode=request.mode,
         engine=request.engine,
         zotero_title=request.zotero_title,
+        model=request.model or config.model,
     )
     plan = build_plan(final_request, profile)
     paper = ingest_paper(final_request.paper_source)

@@ -1,28 +1,33 @@
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 from study_agent.tui import cleanup_choices, default_form_values, next_step
 
 
 class TuiTests(unittest.TestCase):
     def test_default_form_values_prefill_last_request(self) -> None:
-        defaults = default_form_values(
-            {
-                "paper_source": "paper.pdf",
-                "zotero_title": "Demo Paper",
-                "repo_source": ".",
-                "focus": ["EAR", "IAR"],
-                "output_path": "notes/demo.md",
-                "mode": "paper-aligned",
-                "engine": "codex",
-            }
-        )
+        with mock.patch("study_agent.tui.load_config") as mock_load_config:
+            mock_load_config.return_value.model = "gpt-5.5"
+            defaults = default_form_values(
+                {
+                    "paper_source": "paper.pdf",
+                    "zotero_title": "Demo Paper",
+                    "repo_source": ".",
+                    "focus": ["EAR", "IAR"],
+                    "output_path": "notes/demo.md",
+                    "mode": "paper-aligned",
+                    "engine": "codex",
+                    "model": "gpt-5.4",
+                }
+            )
 
         self.assertEqual(defaults.paper, "paper.pdf")
         self.assertEqual(defaults.zotero_title, "Demo Paper")
         self.assertEqual(defaults.focus, "EAR,IAR")
         self.assertEqual(defaults.out, "notes/demo.md")
+        self.assertEqual(defaults.model, "gpt-5.4")
 
     def test_cleanup_choices_and_step_switching(self) -> None:
         self.assertEqual(cleanup_choices(), ["none", "temp", "repo", "all"])

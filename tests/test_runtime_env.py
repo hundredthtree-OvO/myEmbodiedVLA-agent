@@ -10,7 +10,7 @@ from study_agent.runtime_env import configure_runtime_environment
 
 class RuntimeEnvTests(unittest.TestCase):
     def test_configure_runtime_environment_sets_workspace_uv_cache(self) -> None:
-        root = Path.cwd()
+        root = Path.cwd().resolve()
         with mock.patch.dict(os.environ, {}, clear=True):
             env = configure_runtime_environment(root)
             self.assertEqual(os.environ["UV_CACHE_DIR"], str(root / ".tmp" / "uv-cache"))

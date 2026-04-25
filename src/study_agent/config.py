@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,7 @@ DEFAULT_AUTH_PATH = Path("C:/Users/86157/.codex/auth.json")
 DEFAULT_API_URL = "https://chatgpt.com/backend-api/codex/responses"
 DEFAULT_MODEL = "gpt-5.5"
 DEFAULT_ZOTERO_DIR = Path("E:/zoteroData")
+SUPPORTED_MODELS = ("gpt-5.4", "gpt-5.5")
 
 
 def load_config(path: Path = CONFIG_PATH) -> AgentConfig:
@@ -30,7 +32,7 @@ def load_config(path: Path = CONFIG_PATH) -> AgentConfig:
     return AgentConfig(
         auth_path=Path(data.get("auth_path", DEFAULT_AUTH_PATH)),
         api_url=data.get("api_url", DEFAULT_API_URL),
-        model=data.get("model", DEFAULT_MODEL),
+        model=validate_model_name(data.get("model", DEFAULT_MODEL)),
         timeout_seconds=int(data.get("timeout_seconds", 300)),
         max_evidence_chars=int(data.get("max_evidence_chars", 60000)),
         max_history_examples=int(data.get("max_history_examples", 3)),
@@ -45,3 +47,17 @@ def save_config(config: AgentConfig, path: Path = CONFIG_PATH) -> None:
         if isinstance(value, Path):
             data[key] = str(value)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def validate_model_name(model: str) -> str:
+    normalized = model.strip()
+    if normalized not in SUPPORTED_MODELS:
+        allowed = ", ".join(SUPPORTED_MODELS)
+        raise ValueError(f"Unsupported model: {model}. Expected one of: {allowed}")
+    return normalized
+
+
+def with_model(config: AgentConfig, model: str | None) -> AgentConfig:
+    if not model:
+        return config
+    return replace(config, model=validate_model_name(model))

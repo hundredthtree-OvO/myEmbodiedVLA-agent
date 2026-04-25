@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .cleanup import remove_all_caches, remove_pdf_cache
 from .codex_client import CodexUnavailable, assert_codex_ready, run_codex
-from .config import load_config
+from .config import SUPPORTED_MODELS, load_config, with_model
 from .github_check import DEFAULT_REPO_URL, check_github_clone
 from .models import StudyRequest
 from .pipeline import execute_analysis
@@ -24,6 +24,7 @@ class TuiDefaults:
     repo: str
     focus: str
     out: str
+    model: str
     cleanup: str
     mode: str
     engine: str
@@ -64,6 +65,7 @@ def run_tui() -> int:
 
 
 def default_form_values(last_request: dict | None) -> TuiDefaults:
+    config = load_config()
     if not last_request:
         return TuiDefaults(
             paper="",
@@ -71,6 +73,7 @@ def default_form_values(last_request: dict | None) -> TuiDefaults:
             repo=".",
             focus="",
             out="notes/study-note.md",
+            model=config.model,
             cleanup="none",
             mode="paper-aligned",
             engine="codex",
@@ -82,6 +85,7 @@ def default_form_values(last_request: dict | None) -> TuiDefaults:
         repo=last_request.get("repo_source", "."),
         focus=focus,
         out=last_request.get("output_path", "notes/study-note.md"),
+        model=last_request.get("model", config.model),
         cleanup="none",
         mode=last_request.get("mode", "paper-aligned"),
         engine=last_request.get("engine", "codex"),
@@ -115,6 +119,7 @@ def _print_header(env: RuntimeEnvironment) -> None:
     print(f"Workspace : {env.workspace_root}")
     print(f"UV cache  : {env.uv_cache_dir}")
     print(f"Codex     : {codex_status}")
+    print(f"Model     : {config.model}")
     print(f"Zotero    : {config.zotero_data_dir}")
     print(f"Stages    : {', '.join(STAGES)}")
     print("=" * 72)
@@ -155,6 +160,9 @@ def _run_analysis_wizard(env: RuntimeEnvironment) -> None:
     out = _prompt_with_default("Output path", suggested_out)
 
     print("\nStep 5/6 - Cleanup")
+    model = _prompt_with_default(f"Model [{'/'.join(SUPPORTED_MODELS)}]", defaults.model)
+    while model not in SUPPORTED_MODELS:
+        model = _prompt_with_default(f"Model [{'/'.join(SUPPORTED_MODELS)}]", defaults.model)
     cleanup = _prompt_with_default("Cleanup [none/temp/repo/all]", defaults.cleanup)
     while cleanup not in cleanup_choices():
         cleanup = _prompt_with_default("Cleanup [none/temp/repo/all]", "none")
@@ -165,6 +173,7 @@ def _run_analysis_wizard(env: RuntimeEnvironment) -> None:
     print(f"- repo: {repo}")
     print(f"- focus: {', '.join(focus) or '(none)'}")
     print(f"- out: {out}")
+    print(f"- model: {model}")
     print(f"- cleanup: {cleanup}")
     confirm = _prompt_with_default("Run analysis now? [y/n]", "y").lower()
     if confirm != "y":
@@ -179,6 +188,7 @@ def _run_analysis_wizard(env: RuntimeEnvironment) -> None:
         mode="paper-aligned",
         engine="codex",
         zotero_title=zotero_title or None,
+        model=model,
     )
     progress = TerminalProgress()
     result = execute_analysis(request, cleanup_mode=cleanup, progress=progress)
@@ -193,9 +203,13 @@ def _run_analysis_wizard(env: RuntimeEnvironment) -> None:
 
 
 def _run_codex_test() -> None:
-    config = load_config()
+    base_config = load_config()
+    model = _prompt_with_default(f"Model [{'/'.join(SUPPORTED_MODELS)}]", base_config.model)
+    while model not in SUPPORTED_MODELS:
+        model = _prompt_with_default(f"Model [{'/'.join(SUPPORTED_MODELS)}]", base_config.model)
+    config = with_model(base_config, model)
     result = run_codex("Reply exactly: OK", config, Path.cwd(), Path(".study-agent") / "codex-test.md")
-    print(f"\nCodex test result: {result.strip()}\n")
+    print(f"\nCodex test result ({config.model}): {result.strip()}\n")
 
 
 def _run_github_test() -> None:

@@ -9,7 +9,7 @@ from .analyzer.code import build_code_map, build_open_questions, build_reading_p
 from .analyzer.paper import analyze_paper
 from .cleanup import remove_all_caches, remove_pdf_cache
 from .codex_client import CodexUnavailable, run_codex
-from .config import load_config
+from .config import load_config, save_config, validate_model_name, with_model
 from .github_check import DEFAULT_REPO_URL, check_github_clone
 from .models import StudyRequest
 from .pipeline import execute_analysis
@@ -30,6 +30,8 @@ def main(argv: list[str] | None = None) -> int:
             return run_analyze(args)
         if args.command == "profile":
             return run_profile(args)
+        if args.command == "config":
+            return run_config(args)
         if args.command == "feedback":
             return run_feedback(args)
         if args.command == "codex":
@@ -60,6 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("--out", required=True, help="Markdown output path")
     analyze.add_argument("--mode", default="paper-aligned")
     analyze.add_argument("--engine", choices=["codex", "offline"], default="codex")
+    analyze.add_argument("--model", choices=["gpt-5.4", "gpt-5.5"], help="Override model for this run")
     analyze.add_argument(
         "--cleanup",
         choices=["none", "temp", "repo", "all"],
@@ -73,6 +76,12 @@ def build_parser() -> argparse.ArgumentParser:
     update = profile_sub.add_parser("update", help="Update profile")
     update.add_argument("--preset", default="default", help="Preset name")
 
+    config = subparsers.add_parser("config", help="Show or update app config")
+    config_sub = config.add_subparsers(dest="config_command")
+    config_sub.add_parser("show", help="Show current config")
+    set_model = config_sub.add_parser("set-model", help="Set the default Codex model")
+    set_model.add_argument("model", choices=["gpt-5.4", "gpt-5.5"])
+
     feedback = subparsers.add_parser("feedback", help="Apply explicit taste feedback")
     feedback_sub = feedback.add_subparsers(dest="feedback_command")
     apply = feedback_sub.add_parser("apply", help="Apply feedback from a note")
@@ -81,7 +90,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     codex = subparsers.add_parser("codex", help="Codex integration helpers")
     codex_sub = codex.add_subparsers(dest="codex_command")
-    codex_sub.add_parser("test", help="Check Codex CLI/auth by asking for OK")
+    codex_test = codex_sub.add_parser("test", help="Check Codex CLI/auth by asking for OK")
+    codex_test.add_argument("--model", choices=["gpt-5.4", "gpt-5.5"], help="Override model for this test")
 
     cleanup = subparsers.add_parser("cleanup", help="Remove study-agent temporary artifacts")
     cleanup.add_argument("--target", choices=["temp", "all"], default="temp")
@@ -106,14 +116,35 @@ def run_analyze(args: argparse.Namespace) -> int:
         mode=args.mode,
         engine=args.engine,
         zotero_title=args.zotero_title,
+        model=args.model,
     )
-    result = execute_analysis(request, cleanup_mode=args.cleanup)
+    config = with_model(load_config(), args.model)
+    result = execute_analysis(request, cleanup_mode=args.cleanup, config=config)
     print(f"Wrote {result.output_path}")
     if result.cleaned:
         print("Cleaned:")
         for path in result.cleaned:
             print(f"- {path}")
     return 0
+
+
+def run_config(args: argparse.Namespace) -> int:
+    config = load_config()
+    if args.config_command == "show":
+        print(f"auth_path: {config.auth_path}")
+        print(f"api_url: {config.api_url}")
+        print(f"model: {config.model}")
+        print(f"timeout_seconds: {config.timeout_seconds}")
+        print(f"max_evidence_chars: {config.max_evidence_chars}")
+        print(f"max_history_examples: {config.max_history_examples}")
+        print(f"zotero_data_dir: {config.zotero_data_dir}")
+        return 0
+    if args.config_command == "set-model":
+        updated = with_model(config, validate_model_name(args.model))
+        save_config(updated)
+        print(f"Updated default model: {updated.model}")
+        return 0
+    raise ValueError("Missing config command.")
 
 
 def run_profile(args: argparse.Namespace) -> int:
@@ -153,7 +184,7 @@ def run_feedback(args: argparse.Namespace) -> int:
 def run_codex_command(args: argparse.Namespace) -> int:
     if args.codex_command != "test":
         raise ValueError("Missing codex command.")
-    config = load_config()
+    config = with_model(load_config(), getattr(args, "model", None))
     result = run_codex("Reply exactly: OK", config, Path.cwd(), Path(".study-agent") / "codex-test.md")
     print(result.strip())
     return 0

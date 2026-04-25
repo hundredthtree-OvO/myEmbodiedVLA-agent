@@ -25,6 +25,7 @@ class StudyRequest:
     mode: str = "paper-aligned"
     engine: str = "codex"
     zotero_title: str | None = None
+    model: str | None = None
 
 
 @dataclass

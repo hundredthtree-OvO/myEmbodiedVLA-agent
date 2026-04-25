@@ -13,6 +13,7 @@
 
 - `analyze`：分析论文与仓库，默认调用 Codex 生成结构化学习笔记
 - `codex test`：测试本机 Codex auth 与 Codex Responses endpoint 是否可用
+- `config set-model`：切换默认 Codex 模型，当前支持 `gpt-5.4` / `gpt-5.5`
 - `profile show`：查看当前显式偏好配置
 - `profile update`：应用预设偏好
 - `feedback apply`：根据你的短反馈更新 taste profile
@@ -61,6 +62,18 @@ uv run python study_agent_cli.py profile show
 uv run python study_agent_cli.py codex test
 ```
 
+把默认模型切到 `gpt-5.4`：
+
+```powershell
+uv run python study_agent_cli.py config set-model gpt-5.4
+```
+
+单次分析临时改用 `gpt-5.4`：
+
+```powershell
+uv run python study_agent_cli.py analyze --zotero-title "World-Value-Action Model" --repo https://github.com/Win-commit/WAV --focus "Latent Planning and Iterative Inference" --out notes\WAV-latent-planning.md --model gpt-5.4
+```
+
 用 Zotero 题名生成一份学习笔记：
 
 ```powershell
@@ -102,7 +115,21 @@ uv run python study_agent_cli.py analyze --paper <paper> --repo <repo> --focus <
 - `--out`：Markdown 输出路径
 - `--mode`：分析模式，默认 `paper-aligned`
 - `--engine`：`codex` 或 `offline`
+- `--model`：单次运行临时覆盖模型，支持 `gpt-5.4` / `gpt-5.5`
 - `--cleanup`：`none`、`temp`、`repo` 或 `all`；默认 `none`
+
+### config
+
+```powershell
+uv run python study_agent_cli.py config show
+uv run python study_agent_cli.py config set-model gpt-5.4
+uv run python study_agent_cli.py config set-model gpt-5.5
+```
+
+说明：
+
+- `config show`：查看当前配置，包括默认模型
+- `config set-model`：持久修改 `.study-agent/config.json` 里的默认模型
 
 ### cleanup
 
@@ -152,6 +179,7 @@ uv run python study_agent_cli.py tui
 - 在本次进程内设置 `UV_CACHE_DIR=.tmp\uv-cache`
 - 在本次进程内补 `PYTHONPATH=src`
 - 显示 workspace、Codex 状态、Zotero 数据目录、阶段列表
+- 在分析和 `codex test` 前允许选择本次要用的模型
 - 提供固定工作流和快捷动作
 
 ## 输出结构
@@ -230,7 +258,7 @@ uv run python -m unittest discover -s tests
 - [ ] 改进 `Open Last Session`：支持更明确地打开或预览 `request.json`、`evidence.md`、`output.md`。
 - [ ] 支持 Zotero 搜索候选列表，减少必须手工精确输入题名的次数。
 
-### P1：让 taste memory 真正变聪明
+### P2：让 taste memory 真正变聪明
 
 - [ ] 把 `feedback apply` 产生的 taste memory 做成结构化 patch，而不是只追加 Markdown。
 - [ ] 区分低风险偏好和高风险偏好：详略、章节顺序可自动合并；删除章节、改变证据规则需要确认。
@@ -238,7 +266,7 @@ uv run python -m unittest discover -s tests
 - [ ] prompt 中加入最近 2-3 次高质量输出片段，作为 few-shot taste 示例。
 - [ ] 增加 `profile diff`，显示本次反馈会如何改变 profile。
 
-### P2：Zotero 深度联动
+### P3：Zotero 深度联动
 
 - [ ] 支持列出 Zotero 搜索候选，而不是只取第一个模糊匹配结果。
 - [ ] 读取 Zotero metadata：作者、年份、会议/期刊、DOI、abstract、tags、collections。
@@ -246,7 +274,7 @@ uv run python -m unittest discover -s tests
 - [ ] 支持读取 Zotero note/annotation，把用户已有批注放入 Codex prompt。
 - [ ] 避免依赖 `.bak` 的新鲜度：主库 locked 时可复制一份只读临时 sqlite 再查询。
 
-### P2：工程化与发布
+### P4：工程化与发布
 
 - [ ] 把当前非打包模式升级为可安装 CLI：`uv run study-agent ...`。
 - [ ] 增加 `.gitignore`，忽略 `.tmp/`、`.venv/`、`__pycache__/`、session 输出和 repo cache。
@@ -254,7 +282,7 @@ uv run python -m unittest discover -s tests
 - [ ] 增加更细的测试：Codex streaming event 变体、Zotero locked fallback、PDF 抽取 fallback、cleanup 安全边界。
 - [ ] 增加错误消息 polish：把网络、代理、auth、PDF 抽取、Zotero locked 分成可读的用户提示。
 
-### P3：研究能力升级
+### P5：研究能力升级
 
 - [ ] 支持多轮分析：第一轮解释论文 section，第二轮对齐代码，第三轮生成最终笔记。
 - [ ] 支持 shape/变量流深挖模式：对指定函数输出张量形状、数据流和论文公式对应关系。
