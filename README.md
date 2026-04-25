@@ -1,15 +1,13 @@
 # VLA Study Agent
 
-`study-agent` 是一个 Codex-first 的 VLA 论文-代码对齐 CLI。它面向个人研究工作流：输入论文来源、代码仓库、关注点和 taste profile，由本地规则层准备证据包，再交给 Codex 生成结构化 Markdown 学习笔记。
+`study-agent` 是一个 Codex-first 的 VLA 论文-代码对齐 CLI。它面向个人研究工作流：输入论文来源、代码仓库、关注点和 taste/profile，由本地 evidence 层准备证据，再交给 Codex 生成结构化 Markdown 学习笔记。
 
-当前版本的定位是：**Codex-first 的论文-代码对齐研究副驾**。  
-下一阶段的目标是：**从“笔记生成器”走向带学习闭环的研究学习型 Agent**。
+当前版本定位是：
+- Codex-first 的论文-代码对齐研究副驾
+- 面向 Windows + PowerShell 工作流
 
-当前项目 **专门针对Windows系统** ，旨在完善用户在Windows上的工作流。（其实是作者目前只有自己的小笔记本）
-
-第一版重点解决两个问题：
-
-- 读 VLA 论文时，新概念和新架构不够清晰
+当前第一版主要解决两类问题：
+- 阅读 VLA 论文时，新概念和新架构不够清晰
 - 论文表述和代码实现很难在模块/函数级别对齐
 
 ## 功能概览
@@ -17,48 +15,36 @@
 - `analyze`：分析论文与仓库，默认调用 Codex 生成结构化学习笔记
 - `codex test`：测试本机 Codex auth 与 Codex Responses endpoint 是否可用
 - `config set-model`：切换默认 Codex 模型，当前支持 `gpt-5.4` / `gpt-5.5`
-- `profile show`：查看当前显式偏好配置
-- `profile update`：应用预设偏好
-- `feedback apply`：根据你的短反馈更新 taste profile
-- `--zotero-title`：按题名从本地 Zotero 查找 PDF 附件
-- `--engine codex`：默认主路径，使用 Codex Responses endpoint
-- `--engine offline`：调试用 fallback，只输出规则模板结果
-- `--cleanup`：分析结束后按需清理 PDF cache 或远程仓库 cache
-- 仓库准备失败时会提示改用本地 `--repo E:\path\to\repo`，并输出当前 Git / 环境变量代理信息
-- 低证据分析会显式输出 `[Missing Evidence]`，避免把推断伪装成确定结论
+- `profile show` / `profile update`：管理显式 taste profile
+- `feedback apply`：根据短反馈更新 taste/profile
+- `--zotero-title`：按标题从本地 Zotero 查找 PDF 附件
+- `--engine offline`：调试 evidence pack 与离线模板输出
+- `--cleanup`：按需清理 PDF cache 或远程 repo cache
+- `tui`：PowerShell 向导式启动页
 
 ## 环境
 
-本项目使用 `uv` 管理运行环境。为了让缓存也留在工作区内，建议在 PowerShell 中先设置：
+推荐在 PowerShell 中先设置：
 
 ```powershell
 $env:UV_CACHE_DIR='.tmp\uv-cache'
-```
-
-如果需要让测试直接导入 `src` 下的包：
-
-```powershell
 $env:PYTHONPATH='src'
 ```
 
+这样 `uv` 缓存和运行时导入都会留在工作区内。
+
 ## 快速开始
 
-直接启动 PowerShell 向导页：
+启动 PowerShell 向导页：
 
 ```powershell
 uv run python study_agent_cli.py tui
 ```
 
-或者直接运行启动脚本：
+或者：
 
 ```powershell
 .\start-study-agent.ps1
-```
-
-查看当前 profile：
-
-```powershell
-uv run python study_agent_cli.py profile show
 ```
 
 测试 Codex 接入：
@@ -67,34 +53,23 @@ uv run python study_agent_cli.py profile show
 uv run python study_agent_cli.py codex test
 ```
 
-把默认模型切到 `gpt-5.4`：
+切换默认模型：
 
 ```powershell
 uv run python study_agent_cli.py config set-model gpt-5.4
+uv run python study_agent_cli.py config set-model gpt-5.5
 ```
 
-单次分析临时改用 `gpt-5.4`：
-
-```powershell
-uv run python study_agent_cli.py analyze --zotero-title "World-Value-Action Model" --repo https://github.com/Win-commit/WAV --focus "Latent Planning and Iterative Inference" --out notes\WAV-latent-planning.md --model gpt-5.4
-```
-
-用 Zotero 题名生成一份学习笔记：
+用 Zotero 标题生成一份学习笔记：
 
 ```powershell
 uv run python study_agent_cli.py analyze --zotero-title "World-Value-Action Model" --repo https://github.com/Win-commit/WAV --focus "Latent Planning and Iterative Inference" --out notes\WAV-latent-planning.md
 ```
 
-如果远程 GitHub 仓库 clone 失败，但你已经手动把仓库拉到本地：
+如果远程仓库已手动 clone 到本地：
 
 ```powershell
 uv run python study_agent_cli.py analyze --zotero-title "World-Value-Action Model" --repo E:\path\to\WAV --focus "Latent Planning and Iterative Inference" --out notes\WAV-latent-planning.md
-```
-
-如果不想保留本次 PDF 临时缓存和远程 clone 的仓库副本：
-
-```powershell
-uv run python study_agent_cli.py analyze --zotero-title "World-Value-Action Model" --repo https://github.com/Win-commit/WAV --focus "Latent Planning and Iterative Inference" --out notes\WAV-latent-planning.md --cleanup all
 ```
 
 离线调试 evidence/template：
@@ -103,64 +78,41 @@ uv run python study_agent_cli.py analyze --zotero-title "World-Value-Action Mode
 uv run python study_agent_cli.py analyze --paper notes\ACoT-VLA-architecture-study.md --repo . --focus EAR,IAR,kv_cache --out notes\demo-study-agent.md --engine offline
 ```
 
-应用你的显式反馈：
+应用短反馈：
 
 ```powershell
 uv run python study_agent_cli.py feedback apply --from notes\demo-study-agent.md --note "more code-first, keep uncertainty labels"
 ```
 
-## 命令说明
+## 常用命令
 
 ### analyze
 
 ```powershell
-uv run python study_agent_cli.py analyze --paper <paper> --repo <repo> --focus <terms> --out <output.md> --engine offline
+uv run python study_agent_cli.py analyze --paper <paper> --repo <repo> --focus <terms> --out <output.md>
 ```
 
-参数含义：
-
-- `--paper`：论文 URL、本地 PDF、本地 Markdown 或文本文件
-- `--zotero-title`：Zotero 题名模糊查询；如果找到 PDF 附件，会自动作为 paper 输入
+常用参数：
+- `--paper`：论文 URL、本地 PDF、本地 Markdown 或文本
+- `--zotero-title`：按 Zotero 标题模糊查询
 - `--repo`：GitHub URL 或本地仓库路径
-- `--focus`：逗号分隔的关注点，例如 `EAR,IAR,kv_cache`
+- `--focus`：逗号分隔关注点
 - `--out`：Markdown 输出路径
-- `--mode`：分析模式，默认 `paper-aligned`
 - `--engine`：`codex` 或 `offline`
-- `--model`：单次运行临时覆盖模型，支持 `gpt-5.4` / `gpt-5.5`
-- `--cleanup`：`none`、`temp`、`repo` 或 `all`；默认 `none`
+- `--model`：单次覆盖模型，支持 `gpt-5.4` / `gpt-5.5`
+- `--cleanup`：`none`、`temp`、`repo` 或 `all`
 
-失败行为说明：
-
-- 如果远程 `git clone` 失败，程序会提示改用本地 `--repo E:\path\to\repo`
-- clone 失败信息会带上当前 `git http/https proxy` 和 `HTTP_PROXY/HTTPS_PROXY`
-- Zotero、PDF、repo、Codex 失败现在会按来源分别报错，而不是只给一个模糊异常
+失败时的默认行为：
+- 远程 clone 失败会提示改用本地 `--repo E:\path\to\repo`
+- 错误信息会尽量区分 `Zotero`、`PDF`、`repo`、`Codex auth/request`
+- 低证据分析会显式输出 `[Missing Evidence]`
 
 ### config
 
 ```powershell
 uv run python study_agent_cli.py config show
 uv run python study_agent_cli.py config set-model gpt-5.4
-uv run python study_agent_cli.py config set-model gpt-5.5
 ```
-
-说明：
-
-- `config show`：查看当前配置，包括默认模型
-- `config set-model`：持久修改 `.study-agent/config.json` 里的默认模型
-
-### cleanup
-
-```powershell
-uv run python study_agent_cli.py cleanup --target temp
-uv run python study_agent_cli.py cleanup --target all
-```
-
-清理范围：
-
-- `temp`：删除 `.tmp/pdf-cache`
-- `all`：删除 `.tmp/pdf-cache` 和 `.study-agent/repos`
-
-清理命令只删除工作区内的受控缓存目录，不会碰 Zotero 数据目录、Codex auth 或输出笔记。
 
 ### profile
 
@@ -169,40 +121,24 @@ uv run python study_agent_cli.py profile show
 uv run python study_agent_cli.py profile update --preset concise-code-first
 ```
 
-profile 默认存放在：
+profile 默认位置：
 
 ```text
 .study-agent/profile.json
 ```
 
-它记录你的显式偏好，例如章节顺序、关注重点、证据标签风格和默认分析粒度。
-
-### feedback
+### cleanup
 
 ```powershell
-uv run python study_agent_cli.py feedback apply --from notes\demo-study-agent.md --note "少讲背景，多讲实现路径"
+uv run python study_agent_cli.py cleanup --target temp
+uv run python study_agent_cli.py cleanup --target all
 ```
 
-第一版不会做黑盒隐式学习，而是把你的短反馈转成可检查、可编辑的 profile 更新。
-
-### tui
-
-```powershell
-uv run python study_agent_cli.py tui
-```
-
-向导页会自动：
-
-- 在本次进程内设置 `UV_CACHE_DIR=.tmp\uv-cache`
-- 在本次进程内补 `PYTHONPATH=src`
-- 显示 workspace、Codex 状态、Zotero 数据目录、阶段列表
-- 在分析和 `codex test` 前允许选择本次要用的模型
-- 提供固定工作流和快捷动作
+清理只作用于工作区内受控缓存目录，不会碰 Zotero 数据、Codex auth 或输出笔记。
 
 ## 输出结构
 
 默认生成的 Markdown 包含：
-
 - 任务与输入
 - 论文核心概念解释
 - 仓库入口与主干候选
@@ -212,39 +148,30 @@ uv run python study_agent_cli.py tui
 - 建议阅读顺序
 - 未确认点
 
-证据标签默认使用：
+默认证据标签：
+- `CONFIRMED`
+- `INFERRED`
+- `[Missing Evidence]`
 
-- `CONFIRMED`：在论文或代码中有直接证据
-- `INFERRED`：由上下文推断，需要人工复核
-- `[Missing Evidence]`：当前仓库扫描或对齐证据不足，需要人工继续确认
-
-## Codex 接入
+## Codex 与 Zotero
 
 默认使用本机 Codex 登录凭据：
 
 ```text
-C:\path\of\user\.codex\auth.json
+C:\Users\86157\.codex\auth.json
 ```
 
-默认配置在：
+默认配置文件：
 
 ```text
 .study-agent/config.json
 ```
 
-`analyze` 默认不静默回退到规则版。如果 Codex 不可用，会直接报错；需要规则调试时显式传 `--engine offline`。当前错误消息会尽量区分为：
-
-- `Zotero lookup failed`
-- `PDF extraction failed`
-- `Repository preparation failed`
-- `Codex auth failed`
-- `Codex request failed`
-
-## Zotero 联动
-
-如果 Zotero 主库被锁定，程序会尝试读取 `.bak` 备份库。Zotero 数据库只读访问，不会写入或修改 Zotero 数据。
+Zotero 仅做只读访问；主库被锁时会尝试读取 `.bak` 备份库。
 
 ## 测试
+
+自动测试：
 
 ```powershell
 $env:UV_CACHE_DIR='.tmp\uv-cache'
@@ -252,110 +179,46 @@ $env:PYTHONPATH='src'
 uv run python -m unittest discover -s tests
 ```
 
-当前测试覆盖：
-
-- profile preset 更新
-- feedback 到 profile 的显式偏好更新
-- 离线 paper/repo 分析到 Markdown 输出的完整链路
-
-可选真实仓库手工验收：
+可选真实仓库验收：
 
 ```powershell
 uv run python study_agent_cli.py github test --repo-url https://github.com/Win-commit/WAV
-```
-
-```powershell
 uv run python study_agent_cli.py analyze --zotero-title "World-Value-Action Model" --repo https://github.com/Win-commit/WAV --focus "Latent Planning and Iterative Inference" --out notes\wav-evidence-check.md --engine offline
 ```
 
-这组手工验收主要用于验证：
-
-- 真实远程仓库是否能成功浅克隆
-- 远程 clone 后是否能完成 repo 扫描和 Markdown 输出
-- 后续 P1 的 repo evidence pack 增强是否真的体现在真实仓库分析结果里
-
-说明：
-
-- 自动测试继续使用 fake repo fixture，保证稳定和可重复
-- 真实 GitHub 仓库验收不写死进单元测试套件，避免 CI / 离线环境不稳定
-- 当前建议先用 `--engine offline` 验 evidence pack，不把 Codex 输出质量和 repo 扫描质量混在同一次验收里
-
 ## TODO
 
-当前 roadmap 采用 **Evidence First**：先把“论文细节 ↔ 代码实现”的对齐能力做强，再把“越用越聪明”的学习闭环接上。PowerShell/TUI 与 Zotero 继续保留，但降级为支撑能力，而不是主线。
+当前 roadmap 采用 **Evidence First**：先把“论文细节 -> 代码实现”的对齐能力做强，再把“越用越聪明”的学习闭环接上。详细实施拆解、MVP 范围和阶段计划见 [docs/roadmap-detailed.md](docs/roadmap-detailed.md)。
 
 ### P0：Foundation Hardening
 
-- [x] 支持“已手动 clone 的本地仓库优先”：当 GitHub clone 失败时，提示用户改用 `--repo E:\path\to\repo`，并在错误信息里说明当前 Git 代理配置。
-- [x] 输出“证据不足”诊断区：当 repo 不是目标仓库或 clone 失败时，明确告诉用户本次代码对齐不可用。
-- [x] 增加更清楚的错误消息：把网络、代理、auth、PDF 抽取、Zotero locked 分成可读的用户提示。
+- [x] 远程仓库 fallback、代理诊断、错误消息分层
+- [x] `Missing Evidence` 与低证据提示
 
 ### P1：Evidence Core
 
-当前已完成的第一步：
-
-- [x] Repo evidence pack 结构化分类：已经支持 `File groups`、`Model candidates`、`Train candidates`、`Inference candidates`、`Config candidates`、`Data candidates`，并已用真实仓库 `https://github.com/Win-commit/WAV` 完成离线验收。
-- [x] 结构化 repo diagnostics 已接入 prompt 和离线输出：低证据或缺失 train/config/model/data 线索时，会更具体地输出 `Missing Evidence`。
-
-- [ ] 建立统一的 `Concept2Code Tracer`：围绕“论文中的一个研究概念 / 创新点 / 架构部件，在代码中如何被实现、连接、训练、调用”来分析，而不是围绕单一关键词或单一 trace 任务。
-- [ ] 引入 `Concept Card` 作为统一对象：把 focus 抽象为 `concept_name + concept_type + paper_role + possible_code_forms + trace_targets + key_questions`。
-- [ ] 增加 concept type 分类：至少先覆盖 `objective`、`encoder`、`fusion_module`、`action_head`、`world_model`、`tokenization/control`，再根据类型选择不同搜索策略。
-- [ ] 增加最小 `concept alias registry`：先服务 repo 搜索策略和 evidence pack 构建；完整的长期 concept library 继续放在 P3。
-- [x] 把 repo evidence pack 从简单关键词扫描升级到结构化分类：文件类型分组、入口文件、训练脚本、推理脚本、config/model/loss/data 候选。
-- [ ] 增加 AST 级索引：class/function/import/call 的粗粒度索引，支撑比关键词更稳的候选定位。
-- [ ] 增加 dependency/config 索引：识别 `transformers` / `timm` / Hugging Face 模型名、yaml/json/toml/Hydra/argparse 配置来源。
-- [ ] 增加重点文件二次读取：先粗扫描，再让 Codex 选择 3-8 个关键文件，最后读取完整上下文后生成最终分析。
-- [ ] 改进 PDF / paper focus 抽取：更稳定地定位用户指定 section，并优先抽取与 focus 强相关段落。
-- [ ] 第一批 trace 模板作为 `Concept2Code Tracer` 的实例视角落地，而不是顶层主抽象：先支持 `objective/loss trace`、`module/fusion trace`、`architecture diff`。
-- [ ] 输出目标从“找到相关文件”提升到“能解释一个 paper concept 在代码中的实现位置、连接关系、训练/推理参与方式，以及与主流 VLA 的差异”。
-- [ ] 增加 `Evidence Quality Check`：检查每个结论是否同时区分了 paper/code evidence、是否有代码路径支撑、是否明确输出 Missing Evidence。
-
-P1 下一步建议优先做：
-
-- [ ] 重点文件二次读取：先用当前 repo 结构地图和 candidates 缩小范围，再读取 3-8 个关键文件的完整上下文，为下一步 Concept2Code Tracer 做输入准备。
+- [x] Repo evidence pack 结构化分类
+- [ ] Role-aware ranking MVP：先解决 architecture focus 下的入口排序
+- [ ] 重点文件二次读取
+- [ ] AST / dependency / config 索引
 
 ### P2：Learning Loop
 
-- [ ] 每次任务保存更完整的 trace：request、focus、evidence、output、失败点、用户反馈。
-- [ ] 新增 session reflection：总结这次什么分析方式有效、哪些证据不足、下次该优先读哪些类型的文件。
-- [ ] 把 `feedback apply` 产生的 taste memory 做成结构化 patch，而不是只追加 Markdown。
-- [ ] 区分低风险偏好和高风险偏好：详略、章节顺序可自动合并；删除章节、改变证据规则需要确认。
-- [ ] 增加可复用的 skill memory：先用 Markdown/JSON 卡片沉淀分析能力，例如 `analyze_loss_design`、`map_action_head_to_code`、`detect_siglip_usage`、`identify_training_inference_path`。
-- [ ] 根据 focus / repo 命中自动召回相关 skill，把 taste/profile 变成 learning loop 的一部分，而不是唯一记忆。
-- [ ] prompt 中加入最近 2-3 次高质量输出片段，作为 few-shot taste 示例。
-- [ ] 增加 `profile diff`，显示本次反馈会如何改变 profile。
+- [ ] session reflection、skill memory、retrieval
+- [ ] 更结构化的 taste/profile patch 与 few-shot taste 示例
 
 ### P3：Concept Library 与研究输出升级
 
-- [ ] 增加轻量 concept cards / alias cards：先覆盖高频概念，例如 `SigLIP`、`DINOv2`、`JEPA`、`world model`、`bridge attention`、`action head`。
-- [ ] 在输出中新增固定研究章节：论文属于哪类架构、与主流 VLA 的结构差异、Concept-Code Mapping Cards、Novelty Implementation Cards、My VLA Borrowing Plan、Missing Evidence / Need Manual Check。
-- [ ] 让 `Concept-Code Mapping Cards` 根据 concept type 自动展开子类型：例如 `objective/loss trace`、`encoder trace`、`fusion trace`、`world model trace`，而不是固定成单一 Loss Trace。
-- [ ] 支持 shape / 变量流深挖模式：对指定函数输出张量形状、数据流和论文公式对应关系。
-- [ ] 支持多论文对比：例如把 WAV、ACoT-VLA、VLA-Adapter 的 planning/reasoning/action head 对齐成表。
-- [ ] 支持图表生成：把论文模块与代码调用链生成 Mermaid 图。
-- [ ] 支持“复现导向输出”：除了学习笔记，还生成最小复现阅读路线和实验入口清单。
+- [ ] concept alias registry 与 concept library
+- [ ] Concept-Code Mapping Cards、Novelty Implementation Cards、My VLA Borrowing Plan
+- [ ] shape / 变量流、多论文对比、复现导向输出
 
 ### P4：PowerShell/TUI 与 Zotero 支撑项
 
-- [x] 新增交互式入口，例如 `uv run python study_agent_cli.py tui`。
-- [x] 页面启动后提供固定工作流：选择 Zotero 论文、输入/选择 repo、输入 focus、选择 cleanup 策略、运行分析。
-- [x] 增加运行状态显示：Zotero 查询、PDF 抽取、repo 准备、Codex 调用、session 保存。
-- [x] 增加历史 session 浏览：列出 `.study-agent/sessions`，可打开上次 evidence/output。
-- [x] 增加快捷动作：`codex test`、`cleanup temp`、`cleanup all`、`profile show`。
-- [ ] 如果 `repo` 是 GitHub URL，在正式分析前自动做一次 clone probe；失败时提前报错，并显示代理配置与“改用本地仓库路径”的提示。
-- [ ] 补全“最近使用”输入复用：最近的 Zotero title、repo、focus、cleanup 策略都能直接回填。
-- [ ] 把运行状态区再做清楚一点：区分 `current stage`、`last message` 和 `assistant output preview`，增强“正在工作”的可感知性。
-- [ ] 在 TUI 中增加专门的 GitHub probe cache 清理入口，便于清掉 clone test 的残留探针目录。
-- [ ] 改进 `Open Last Session`：支持更明确地打开或预览 `request.json`、`evidence.md`、`output.md`。
-- [ ] 支持列出 Zotero 搜索候选，而不是只取第一个模糊匹配结果。
-- [ ] 读取 Zotero metadata：作者、年份、会议/期刊、DOI、abstract、tags、collections。
-- [ ] 支持从 Zotero item key 或 attachment key 精确定位论文。
-- [ ] 支持读取 Zotero note/annotation，把用户已有批注放入 Codex prompt。
-- [ ] 避免依赖 `.bak` 的新鲜度：主库 locked 时可复制一份只读临时 sqlite 再查询。
+- [x] TUI、session 浏览、基础 cleanup / codex test / profile 动作
+- [ ] 最近输入复用、状态区增强、GitHub probe 前置检查
+- [ ] 更深的 Zotero metadata / annotation / 候选列表支持
 
 ### P5：工程化与发布
 
-- [ ] 把当前非打包模式升级为可安装 CLI：`uv run study-agent ...`。
-- [ ] 增加 `.gitignore`，忽略 `.tmp/`、`.venv/`、`__pycache__/`、session 输出和 repo cache。
-- [ ] 增加配置命令：`config show`、`config set zotero_data_dir ...` 等剩余配置项管理。
-- [ ] 增加更细的测试：Codex streaming event 变体、Zotero locked fallback、PDF 抽取 fallback、cleanup 安全边界。
+- [ ] 可安装 CLI、配置命令补齐、缓存与测试体系加固

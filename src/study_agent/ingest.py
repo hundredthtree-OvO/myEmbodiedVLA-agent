@@ -15,7 +15,8 @@ TEXT_SUFFIXES = {".md", ".txt", ".tex", ".rst"}
 CODE_SUFFIXES = {".py", ".ipynb", ".js", ".jsx", ".ts", ".tsx", ".java", ".cpp", ".cc", ".h", ".hpp", ".rs"}
 CONFIG_SUFFIXES = {".yaml", ".yml", ".json", ".toml", ".ini"}
 DOC_SUFFIXES = {".md", ".rst", ".txt"}
-REPO_TEXT_SUFFIXES = CODE_SUFFIXES | CONFIG_SUFFIXES | DOC_SUFFIXES
+SCRIPT_SUFFIXES = {".sh", ".bash", ".zsh", ".ps1", ".bat", ".cmd"}
+REPO_TEXT_SUFFIXES = CODE_SUFFIXES | CONFIG_SUFFIXES | DOC_SUFFIXES | SCRIPT_SUFFIXES
 SKIP_DIRS = {".git", ".venv", "__pycache__", "node_modules", ".mypy_cache", ".pytest_cache", "dist", "build"}
 TRAIN_NAMES = {"train", "fit", "compute_loss", "loss", "training_step"}
 INFER_NAMES = {"sample", "sample_actions", "predict", "predict_action", "forward", "evaluate", "eval", "inference"}
@@ -24,6 +25,8 @@ FILE_GROUP_ORDER = [
     "train_scripts",
     "inference_scripts",
     "configs",
+    "core_model",
+    "deployment_policy",
     "model_policy",
     "loss_objective",
     "data",
@@ -35,11 +38,47 @@ GROUP_PATTERNS: dict[str, tuple[str, ...]] = {
     "train_scripts": ("train", "trainer", "fit", "training"),
     "inference_scripts": ("infer", "eval", "predict", "sample", "deploy", "serve"),
     "configs": ("config", "configs/", ".yaml", ".yml", ".json", ".toml", ".ini"),
+    "core_model": (
+        "models/",
+        "transformer",
+        "attention",
+        "encoder",
+        "decoder",
+        "pipeline",
+        "patches",
+        "autoencoder",
+        "backbone",
+    ),
+    "deployment_policy": (
+        "web_infer_utils/",
+        "web_infer_scripts/",
+        "openpi_client/",
+        "runtime/",
+        "client",
+        "websocket",
+        "server",
+        "deploy",
+        "policy_agent",
+        "base_policy",
+    ),
     "model_policy": ("model", "models/", "policy", "agent", "network", "backbone", "encoder", "decoder"),
     "loss_objective": ("loss", "objective", "criterion"),
     "data": ("data", "dataset", "dataloader", "loader", "processor", "tokenizer"),
     "env_robot_interface": ("env", "environment", "robot", "sim", "wrapper", "controller", "interface"),
     "utils": ("utils", "common", "helpers"),
+}
+GROUP_RANK_BOOSTS: dict[str, tuple[str, ...]] = {
+    "docs": ("readme",),
+    "train_scripts": ("train", "trainer", "engine", "algorithm"),
+    "inference_scripts": ("infer", "eval", "deploy", "server", "predict"),
+    "configs": ("config",),
+    "core_model": ("transformer", "pipeline", "patches", "attention", "backbone", "encoder", "decoder", "autoencoder"),
+    "deployment_policy": ("policy", "client", "websocket", "server", "deploy", "runtime"),
+    "model_policy": ("transformer", "pipeline", "patches", "attention", "expert", "policy", "backbone"),
+    "loss_objective": ("loss", "objective", "criterion"),
+    "data": ("dataset", "dataloader", "processor", "tokenizer"),
+    "env_robot_interface": ("environment", "env", "wrapper", "controller", "sim"),
+    "utils": ("utils", "helpers", "common"),
 }
 GROUP_LIMIT = 12
 
@@ -106,7 +145,13 @@ def ingest_repo(source: str, focus: list[str], cache_dir: Path = Path(".study-ag
             config_hits.extend(file_hits)
 
     file_groups = _build_file_groups(rel_paths)
-    entry_candidates = _rank_entry_candidates(symbols, hits)
+    repo_tokens = _repo_name_tokens(repo_path)
+    role_candidates, candidate_reasons = _build_role_candidates(rel_paths, file_groups, repo_tokens)
+    entry_candidates = _candidate_symbols(
+        _merge_role_entry_paths(role_candidates, file_groups),
+        symbols,
+        hits,
+    )
     train_path = _symbols_by_names(symbols, TRAIN_NAMES)
     infer_path = _symbols_by_names(symbols, INFER_NAMES)
 
@@ -116,11 +161,21 @@ def ingest_repo(source: str, focus: list[str], cache_dir: Path = Path(".study-ag
         files_scanned=len(files),
         file_groups=file_groups,
         entry_candidates=entry_candidates[:8],
+        architecture_entry_candidates=role_candidates["architecture_entry"][:8],
+        config_entry_candidates=role_candidates["config_entry"][:8],
+        deployment_entry_candidates=role_candidates["deployment_entry"][:8],
+        docs_candidates=_candidate_list(file_groups, "docs"),
         train_candidates=_candidate_list(file_groups, "train_scripts"),
         inference_candidates=_candidate_list(file_groups, "inference_scripts"),
         config_candidates=_candidate_list(file_groups, "configs"),
-        model_candidates=_candidate_list(file_groups, "model_policy"),
+        core_model_candidates=_candidate_list(file_groups, "core_model"),
+        deployment_policy_candidates=_candidate_list(file_groups, "deployment_policy"),
+        model_candidates=_merged_model_candidates(file_groups),
+        loss_candidates=_candidate_list(file_groups, "loss_objective"),
         data_candidates=_candidate_list(file_groups, "data"),
+        env_candidates=_candidate_list(file_groups, "env_robot_interface"),
+        utils_candidates=_candidate_list(file_groups, "utils"),
+        candidate_reasons=candidate_reasons,
         symbols=symbols[:500],
         hits=hits[:250],
         config_hits=config_hits[:80],
@@ -327,9 +382,33 @@ def _build_file_groups(rel_paths: list[str]) -> dict[str, list[str]]:
 
 def _matching_groups(rel_path: str) -> list[str]:
     lowered = rel_path.lower()
+    tokens = _path_tokens(lowered)
+    parts = Path(lowered).parts
     matches: list[str] = []
+    deployment_match = any(
+        _pattern_matches(pattern, lowered, tokens, parts)
+        for pattern in GROUP_PATTERNS["deployment_policy"]
+    )
+    core_match = any(
+        _pattern_matches(pattern, lowered, tokens, parts)
+        for pattern in GROUP_PATTERNS["core_model"]
+    )
     for group, patterns in GROUP_PATTERNS.items():
-        if any(pattern in lowered for pattern in patterns):
+        if group == "deployment_policy":
+            if deployment_match:
+                matches.append(group)
+            continue
+        if group == "core_model":
+            if not deployment_match and core_match:
+                matches.append(group)
+            continue
+        if group == "model_policy":
+            if deployment_match or core_match or any(
+                _pattern_matches(pattern, lowered, tokens, parts) for pattern in patterns
+            ):
+                matches.append(group)
+            continue
+        if any(_pattern_matches(pattern, lowered, tokens, parts) for pattern in patterns):
             matches.append(group)
     return matches
 
@@ -339,11 +418,18 @@ def _rank_group_paths(group: str, paths: list[str]) -> list[str]:
 
     def score(path: str) -> tuple[int, int, int, str]:
         lowered = path.lower()
-        strong_hits = sum(1 for pattern in GROUP_PATTERNS[group] if pattern in lowered)
+        tokens = _path_tokens(lowered)
+        parts = Path(lowered).parts
+        strong_hits = sum(1 for pattern in GROUP_PATTERNS[group] if _pattern_matches(pattern, lowered, tokens, parts))
+        strong_hits += sum(2 for token in GROUP_RANK_BOOSTS.get(group, ()) if token in tokens)
         if "tests/" in lowered or lowered.startswith("tests/"):
             strong_hits -= 2
         if group == "docs" and lowered != "readme.md" and lowered.endswith(".md"):
             strong_hits -= 1
+        if Path(lowered).name == "__init__.py":
+            strong_hits -= 4
+        if Path(lowered).suffix in SCRIPT_SUFFIXES and group in {"train_scripts", "inference_scripts"}:
+            strong_hits += 2
         return (strong_hits, -_path_depth(path), -len(path), path)
 
     return sorted(unique, key=score, reverse=True)
@@ -353,5 +439,307 @@ def _candidate_list(file_groups: dict[str, list[str]], group: str, limit: int = 
     return list(file_groups.get(group, [])[:limit])
 
 
+def _merged_model_candidates(file_groups: dict[str, list[str]], limit: int = 8) -> list[str]:
+    merged: list[str] = []
+    for path in file_groups.get("core_model", []):
+        if path not in merged:
+            merged.append(path)
+        if len(merged) >= limit:
+            return merged
+    for path in file_groups.get("deployment_policy", []):
+        if path not in merged:
+            merged.append(path)
+        if len(merged) >= limit:
+            return merged
+    for path in file_groups.get("model_policy", []):
+        if path not in merged:
+            merged.append(path)
+        if len(merged) >= limit:
+            return merged
+    return merged
+
+
+def _build_role_candidates(
+    rel_paths: list[str],
+    file_groups: dict[str, list[str]],
+    repo_tokens: set[str],
+) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    architecture_scored: list[tuple[str, list[str], int]] = []
+    config_scored: list[tuple[str, list[str], int]] = []
+    deployment_scored: list[tuple[str, list[str], int]] = []
+    candidate_reasons: dict[str, list[str]] = {}
+
+    for path in rel_paths:
+        arch_reasons = _architecture_entry_reasons(path, file_groups, repo_tokens)
+        if arch_reasons:
+            architecture_scored.append((path, arch_reasons, _architecture_entry_score(path, arch_reasons)))
+            candidate_reasons[path] = [f"architecture_entry:{reason}" for reason in arch_reasons]
+
+        config_reasons = _config_entry_reasons(path, file_groups)
+        if config_reasons:
+            config_scored.append((path, config_reasons, _config_entry_score(path, config_reasons)))
+            candidate_reasons.setdefault(path, []).extend(f"config_entry:{reason}" for reason in config_reasons)
+
+        deployment_reasons = _deployment_entry_reasons(path, file_groups)
+        if deployment_reasons:
+            deployment_scored.append((path, deployment_reasons, _deployment_entry_score(path, deployment_reasons)))
+            candidate_reasons.setdefault(path, []).extend(
+                f"deployment_entry:{reason}" for reason in deployment_reasons
+            )
+
+    return (
+        {
+            "architecture_entry": _sort_role_candidates(architecture_scored),
+            "config_entry": _sort_role_candidates(config_scored),
+            "deployment_entry": _sort_role_candidates(deployment_scored),
+        },
+        candidate_reasons,
+    )
+
+
+def _architecture_entry_reasons(path: str, file_groups: dict[str, list[str]], repo_tokens: set[str]) -> list[str]:
+    lowered = path.lower()
+    parts = Path(lowered).parts
+    tokens = _path_tokens(lowered)
+    stem = Path(lowered).stem
+    reasons: list[str] = []
+
+    if _is_noise_or_metadata_path(lowered):
+        return reasons
+
+    model_namespaces = {"model", "models", "vlm", "vlms", "vla", "vlas"}
+    assembly_tokens = {"arch", "builder", "model", "vla", "vlm", "policy"}
+    assembly_stems = {"builder", "model"}
+
+    if path in file_groups.get("core_model", []):
+        reasons.append("core_model_group")
+    if any(part in model_namespaces for part in parts):
+        reasons.append("model_namespace")
+    if any(part in {"vlms", "vlas"} for part in parts):
+        reasons.append("vla_namespace")
+    if stem in assembly_stems or stem.endswith("_arch") or stem.endswith("_model") or stem.endswith("_vla") or stem.endswith("_vlm"):
+        reasons.append("assembly_filename")
+    matched_tokens = sorted(token for token in assembly_tokens if token in tokens)
+    reasons.extend(f"assembly_token:{token}" for token in matched_tokens[:2])
+    matched_repo_tokens = sorted(token for token in repo_tokens if token and token in tokens and token not in {"repo"})
+    reasons.extend(f"project_stem_match:{token}" for token in matched_repo_tokens[:2])
+
+    if not reasons:
+        return reasons
+
+    if Path(lowered).name == "__init__.py":
+        return []
+    return reasons
+
+
+def _config_entry_reasons(path: str, file_groups: dict[str, list[str]]) -> list[str]:
+    lowered = path.lower()
+    parts = Path(lowered).parts
+    stem = Path(lowered).stem
+    reasons: list[str] = []
+
+    if _is_noise_or_metadata_path(lowered):
+        return reasons
+
+    if path in file_groups.get("configs", []):
+        reasons.append("config_group")
+    if "conf" in parts:
+        reasons.append("conf_namespace")
+    if lowered.endswith("config.py") or lowered.endswith("_config.py"):
+        reasons.append("python_config")
+    if "training/config.py" in lowered:
+        reasons.append("training_config")
+    if "policy_config.py" in lowered:
+        reasons.append("policy_config")
+    if stem == "config":
+        reasons.append("config_stem")
+
+    return reasons
+
+
+def _deployment_entry_reasons(path: str, file_groups: dict[str, list[str]]) -> list[str]:
+    lowered = path.lower()
+    parts = Path(lowered).parts
+    tokens = _path_tokens(lowered)
+    reasons: list[str] = []
+
+    if path in file_groups.get("deployment_policy", []):
+        reasons.append("deployment_group")
+    if any(part in {"serving", "runtime"} for part in parts):
+        reasons.append("runtime_namespace")
+    matched_tokens = sorted(
+        token for token in {"deploy", "server", "client", "websocket", "runtime", "serve", "subscriber"} if token in tokens
+    )
+    reasons.extend(f"deployment_token:{token}" for token in matched_tokens[:3])
+    return reasons
+
+
+def _architecture_entry_score(path: str, reasons: list[str]) -> int:
+    score = 0
+    for reason in reasons:
+        if reason == "core_model_group":
+            score += 5
+        elif reason == "model_namespace":
+            score += 3
+        elif reason == "vla_namespace":
+            score += 4
+        elif reason == "assembly_filename":
+            score += 5
+        elif reason.startswith("assembly_token:"):
+            score += 3
+        elif reason.startswith("project_stem_match:"):
+            score += 2
+    if Path(path.lower()).name == "__init__.py":
+        score -= 6
+    if _is_test_file(path.lower()):
+        score -= 4
+    return score
+
+
+def _config_entry_score(path: str, reasons: list[str]) -> int:
+    lowered = path.lower()
+    score = 0
+    for reason in reasons:
+        if reason == "conf_namespace":
+            score += 6
+        elif reason == "training_config":
+            score += 5
+        elif reason == "policy_config":
+            score += 5
+        elif reason == "python_config":
+            score += 4
+        elif reason == "config_group":
+            score += 2
+        elif reason == "config_stem":
+            score += 2
+    if any(noise in lowered for noise in [".pre-commit-config.yaml", "tokenizer.json", "tokenizer_config.json", "vocab.json", "processor_config.json", "generation_config.json"]):
+        score -= 5
+    return score
+
+
+def _deployment_entry_score(path: str, reasons: list[str]) -> int:
+    score = 0
+    for reason in reasons:
+        if reason == "deployment_group":
+            score += 5
+        elif reason == "runtime_namespace":
+            score += 4
+        elif reason.startswith("deployment_token:"):
+            score += 2
+    return score
+
+
+def _sort_role_candidates(scored: list[tuple[str, list[str], int]], limit: int = 8) -> list[str]:
+    ordered = sorted(
+        scored,
+        key=lambda item: (item[2], -_path_depth(item[0]), -len(item[0]), item[0]),
+        reverse=True,
+    )
+    result: list[str] = []
+    for path, _, _ in ordered:
+        if path not in result:
+            result.append(path)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _merge_role_entry_paths(role_candidates: dict[str, list[str]], file_groups: dict[str, list[str]], limit: int = 8) -> list[str]:
+    merged: list[str] = []
+    ordered_groups = [
+        role_candidates.get("architecture_entry", []),
+        _candidate_list(file_groups, "train_scripts"),
+        role_candidates.get("config_entry", []),
+        role_candidates.get("deployment_entry", []),
+    ]
+    for group in ordered_groups:
+        for path in group:
+            if path not in merged:
+                merged.append(path)
+            if len(merged) >= limit:
+                return merged
+    return merged
+
+
+def _candidate_symbols(paths: list[str], symbols: list[CodeSymbol], hits: list[CodeHit]) -> list[CodeSymbol]:
+    selected: list[CodeSymbol] = []
+    for path in paths:
+        file_symbols = [symbol for symbol in symbols if symbol.path == path]
+        if file_symbols:
+            chosen = sorted(
+                file_symbols,
+                key=lambda item: (item.kind != "class", item.line, item.name.lower()),
+            )[0]
+            if chosen not in selected:
+                selected.append(chosen)
+            continue
+
+        file_hits = [hit for hit in hits if hit.path == path]
+        if file_hits:
+            chosen_hit = sorted(file_hits, key=lambda item: (item.line, item.term.lower()))[0]
+            selected.append(
+                CodeSymbol(
+                    name=Path(path).stem,
+                    kind="file",
+                    path=path,
+                    line=chosen_hit.line,
+                    evidence=chosen_hit.text or "role-aware file candidate",
+                )
+            )
+            continue
+
+        selected.append(
+            CodeSymbol(
+                name=Path(path).stem,
+                kind="file",
+                path=path,
+                line=1,
+                evidence="role-aware file candidate",
+            )
+        )
+    return selected
+
+
+def _repo_name_tokens(repo_path: Path) -> set[str]:
+    tokens = _path_tokens(repo_path.name.lower())
+    expanded = set(tokens)
+    for token in list(tokens):
+        for suffix in ("vla", "vlm"):
+            if token.endswith(suffix) and token != suffix and len(token) > len(suffix) + 1:
+                expanded.add(token[: -len(suffix)])
+                expanded.add(suffix)
+    return expanded
+
+
+def _is_test_file(lowered_path: str) -> bool:
+    name = Path(lowered_path).name
+    return lowered_path.startswith("tests/") or "/tests/" in lowered_path or name.endswith("_test.py")
+
+
+def _is_noise_or_metadata_path(lowered_path: str) -> bool:
+    return any(
+        marker in lowered_path
+        for marker in [
+            "egg-info/",
+            "extern/hf/",
+            "pretrained_models/configs/",
+            "diffusion_utils/",
+            "__pycache__/",
+        ]
+    ) or _is_test_file(lowered_path)
+
+
 def _path_depth(path: str) -> int:
     return len(Path(path).parts)
+
+
+def _path_tokens(path: str) -> set[str]:
+    return {token for token in re.split(r"[^a-z0-9]+", path.lower()) if token}
+
+
+def _pattern_matches(pattern: str, lowered_path: str, tokens: set[str], parts: tuple[str, ...]) -> bool:
+    if pattern.endswith("/"):
+        return pattern.removesuffix("/") in parts
+    if pattern.startswith("."):
+        return lowered_path.endswith(pattern)
+    return pattern in tokens

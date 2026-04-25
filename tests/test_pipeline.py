@@ -58,7 +58,11 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("kv_cache", markdown)
         self.assertIn("model.py", markdown)
         self.assertIn("File groups", markdown)
+        self.assertIn("Architecture entry candidates", markdown)
         self.assertIn("Model candidates", markdown)
+        self.assertIn("Candidate reason debug", markdown)
+        self.assertIn("No obvious core model files were found", markdown)
+        self.assertIn("No obvious docs/readme files were found", markdown)
 
     def test_offline_pipeline_surfaces_missing_evidence_diagnostics(self) -> None:
         tmp_path = Path.cwd() / ".tmp" / "test_pipeline_missing_evidence"
@@ -96,6 +100,44 @@ class PipelineTests(unittest.TestCase):
 
         self.assertIn("[Missing Evidence]", markdown)
         self.assertIn("code alignment confidence is low", markdown)
+        self.assertIn("No obvious standalone loss/objective file found", markdown)
+
+    def test_architecture_focus_reading_path_prefers_architecture_entries(self) -> None:
+        tmp_path = Path.cwd() / ".tmp" / "test_pipeline_architecture_focus"
+        repo = tmp_path / "repo"
+        (repo / "src" / "demo" / "models").mkdir(parents=True, exist_ok=True)
+        (repo / "src" / "demo" / "training").mkdir(parents=True, exist_ok=True)
+        (repo / "web_infer_utils" / "client").mkdir(parents=True, exist_ok=True)
+
+        paper = tmp_path / "paper.md"
+        paper.write_text("# Demo Repo\n\nArchitecture matters here.", encoding="utf-8")
+        (repo / "src" / "demo" / "models" / "demo_vla.py").write_text(
+            "class DemoVLA:\n    pass\n",
+            encoding="utf-8",
+        )
+        (repo / "src" / "demo" / "training" / "config.py").write_text(
+            "class TrainConfig:\n    pass\n",
+            encoding="utf-8",
+        )
+        (repo / "web_infer_utils" / "client" / "websocket_client_policy.py").write_text(
+            "class WebsocketClientPolicy:\n    pass\n",
+            encoding="utf-8",
+        )
+
+        request = StudyRequest(
+            paper_source=str(paper),
+            repo_source=str(repo),
+            focus=["architecture"],
+            output_path=tmp_path / "out.md",
+            engine="offline",
+        )
+        profile = TasteProfile()
+        plan = build_plan(request, profile)
+        repo_info = ingest_repo(request.repo_source, plan.focus_terms)
+        reading_path = build_reading_path(repo_info, plan)
+
+        self.assertGreater(len(reading_path), 0)
+        self.assertEqual(reading_path[0].path, "src/demo/models/demo_vla.py")
 
 
 if __name__ == "__main__":

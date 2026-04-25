@@ -52,11 +52,20 @@ def compose_markdown(artifact: StudyArtifact) -> str:
     else:
         lines.append("- File groups: none")
 
+    _append_candidate_group(lines, "Architecture entry candidates", artifact.repo.architecture_entry_candidates)
+    _append_candidate_group(lines, "Config entry candidates", artifact.repo.config_entry_candidates)
+    _append_candidate_group(lines, "Deployment entry candidates", artifact.repo.deployment_entry_candidates)
+    _append_candidate_group(lines, "Core model candidates", artifact.repo.core_model_candidates)
+    _append_candidate_group(lines, "Deployment/client policy candidates", artifact.repo.deployment_policy_candidates)
     _append_candidate_group(lines, "Model candidates", artifact.repo.model_candidates)
     _append_candidate_group(lines, "Train candidates", artifact.repo.train_candidates)
     _append_candidate_group(lines, "Inference candidates", artifact.repo.inference_candidates)
     _append_candidate_group(lines, "Config candidates", artifact.repo.config_candidates)
+    _append_candidate_group(lines, "Loss candidates", artifact.repo.loss_candidates)
     _append_candidate_group(lines, "Data candidates", artifact.repo.data_candidates)
+    _append_candidate_group(lines, "Env candidates", artifact.repo.env_candidates)
+    _append_candidate_group(lines, "Utils candidates", artifact.repo.utils_candidates)
+    _append_candidate_group(lines, "Docs candidates", artifact.repo.docs_candidates)
 
     if artifact.repo.entry_candidates:
         lines.append("- Entry candidates:")
@@ -65,6 +74,11 @@ def compose_markdown(artifact: StudyArtifact) -> str:
             lines.append(f"    - Evidence: `{symbol.evidence}`")
     else:
         lines.append("- No entry candidates found.")
+
+    debug_lines = _candidate_reason_lines(artifact.repo)
+    if debug_lines:
+        lines.append("- Candidate reason debug:")
+        lines.extend(debug_lines)
 
     lines.extend(["", "## 4. 论文模块 -> 代码模块映射", ""])
     for item in artifact.code_map:
@@ -148,3 +162,21 @@ def _ref(ref: CodeSymbol | CodeHit) -> str:
     if isinstance(ref, CodeSymbol):
         return _symbol_ref(ref)
     return f"{ref.path}:{ref.line} - {ref.text}"
+
+
+def _candidate_reason_lines(repo) -> list[str]:
+    lines: list[str] = []
+    seen: set[str] = set()
+    for title, values in (
+        ("architecture_entry", repo.architecture_entry_candidates),
+        ("config_entry", repo.config_entry_candidates),
+        ("deployment_entry", repo.deployment_entry_candidates),
+    ):
+        for path in values[:3]:
+            if path in seen:
+                continue
+            seen.add(path)
+            reasons = repo.candidate_reasons.get(path, [])
+            if reasons:
+                lines.append(f"  - `{title}` :: `{path}` => {', '.join(reasons[:6])}")
+    return lines

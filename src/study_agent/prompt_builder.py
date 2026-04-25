@@ -89,11 +89,20 @@ def _repo_block(repo: RepoInfo) -> str:
             preview = ", ".join(paths[:5])
             lines.append(f"- {group_name}: {preview}")
 
+    _append_path_list(lines, "Architecture entry candidates", repo.architecture_entry_candidates)
+    _append_path_list(lines, "Config entry candidates", repo.config_entry_candidates)
+    _append_path_list(lines, "Deployment entry candidates", repo.deployment_entry_candidates)
+    _append_path_list(lines, "Core model candidates", repo.core_model_candidates)
+    _append_path_list(lines, "Deployment/client policy candidates", repo.deployment_policy_candidates)
     _append_path_list(lines, "Model candidates", repo.model_candidates)
     _append_path_list(lines, "Train candidates", repo.train_candidates)
     _append_path_list(lines, "Inference candidates", repo.inference_candidates)
     _append_path_list(lines, "Config candidates", repo.config_candidates)
+    _append_path_list(lines, "Loss candidates", repo.loss_candidates)
     _append_path_list(lines, "Data candidates", repo.data_candidates)
+    _append_path_list(lines, "Env candidates", repo.env_candidates)
+    _append_path_list(lines, "Utils candidates", repo.utils_candidates)
+    _append_path_list(lines, "Docs candidates", repo.docs_candidates)
 
     lines.append("Entry candidates:")
     lines.extend(f"- {_symbol(symbol)}" for symbol in repo.entry_candidates[:12])
@@ -108,6 +117,10 @@ def _repo_block(repo: RepoInfo) -> str:
     if diagnostics:
         lines.append("Repository diagnostics:")
         lines.extend(f"- {item}" for item in diagnostics)
+    debug_lines = _candidate_reason_lines(repo)
+    if debug_lines:
+        lines.append("Candidate reason debug:")
+        lines.extend(debug_lines)
     return "\n".join(lines)
 
 
@@ -122,6 +135,17 @@ def _repo_diagnostics(repo: RepoInfo) -> list[str]:
     diagnostics: list[str] = []
     if not repo.entry_candidates:
         diagnostics.append("No clear model/policy entrypoint was found in the repository evidence.")
+    if not repo.architecture_entry_candidates:
+        diagnostics.append("No architecture-oriented entry candidates were found; fall back to core model and training evidence.")
+    if not repo.config_entry_candidates:
+        diagnostics.append("No research-oriented config entry candidates were found in the current scan.")
+    if not repo.core_model_candidates:
+        diagnostics.append("No obvious core model files were found in the current scan.")
+        diagnostics.append("Inspect train/config candidates for inline architecture definition.")
+    if repo.deployment_policy_candidates:
+        diagnostics.append("Deployment/client policy files found; treat them as inference wrappers unless paper evidence suggests otherwise.")
+        if repo.core_model_candidates:
+            diagnostics.append("Core model files found, but deployment/client wrappers are also prominent. Prioritize core_model candidates for architecture analysis.")
     if not repo.model_candidates:
         diagnostics.append("No obvious model/policy files were found in the current scan.")
     if not repo.train_candidates:
@@ -130,8 +154,22 @@ def _repo_diagnostics(repo: RepoInfo) -> list[str]:
         diagnostics.append("No obvious inference scripts were found in the current scan.")
     if not repo.config_candidates:
         diagnostics.append("No obvious config files were found in the current scan.")
+    if not repo.loss_candidates:
+        diagnostics.append("No obvious standalone loss/objective file found.")
+        diagnostics.append("Loss/objective may be implemented inline in model/trainer/algorithm files.")
     if not repo.data_candidates:
         diagnostics.append("No obvious data/dataset files were found in the current scan.")
+    if not repo.env_candidates:
+        diagnostics.append("No obvious standalone env/robot interface file found.")
+        diagnostics.append("Environment integration may be implemented inline in deploy/wrapper/controller files.")
+    if not repo.utils_candidates:
+        diagnostics.append("No obvious utils/helper files were found in the current scan.")
+    elif not any(hit.path in repo.utils_candidates for hit in repo.hits):
+        diagnostics.append("Utils/helper files exist, but no focused hits were found in them yet.")
+    if not repo.docs_candidates:
+        diagnostics.append("No obvious docs/readme files were found in the current scan.")
+    elif len(repo.docs_candidates) < 2:
+        diagnostics.append("Docs are sparse; rely more on code/config evidence for alignment.")
     if not repo.train_path:
         diagnostics.append("Training path is not directly confirmed by symbol names.")
     if not repo.infer_path:
@@ -141,6 +179,24 @@ def _repo_diagnostics(repo: RepoInfo) -> list[str]:
     if not repo.config_hits:
         diagnostics.append("No config-related keyword hits were found in the current scan.")
     return diagnostics
+
+
+def _candidate_reason_lines(repo: RepoInfo) -> list[str]:
+    lines: list[str] = []
+    seen: set[str] = set()
+    for title, values in (
+        ("architecture_entry", repo.architecture_entry_candidates),
+        ("config_entry", repo.config_entry_candidates),
+        ("deployment_entry", repo.deployment_entry_candidates),
+    ):
+        for path in values[:3]:
+            if path in seen:
+                continue
+            seen.add(path)
+            reasons = repo.candidate_reasons.get(path, [])
+            if reasons:
+                lines.append(f"- {title} :: {path} => {', '.join(reasons[:6])}")
+    return lines
 
 
 def _symbol(symbol: CodeSymbol) -> str:

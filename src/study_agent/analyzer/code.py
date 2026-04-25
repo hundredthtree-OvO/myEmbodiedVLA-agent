@@ -29,11 +29,47 @@ def build_reading_path(repo: RepoInfo, plan: AnalysisPlan) -> list[CodeSymbol]:
     if plan.reading_order_style == "concept-first":
         return repo.entry_candidates[:8]
 
+    focus_terms = {term.lower() for term in plan.focus_terms}
+    architecture_focus = any(term in focus_terms for term in {"architecture", "model", "module"})
+    training_focus = any(term in focus_terms for term in {"training", "loss", "objective"})
+    inference_focus = any(term in focus_terms for term in {"inference", "deploy", "eval"})
+    config_focus = any(term in focus_terms for term in {"config", "hyperparameter"})
+
+    ordered_paths: list[str] = []
+    if architecture_focus or not (training_focus or inference_focus or config_focus):
+        ordered_paths.extend(repo.architecture_entry_candidates[:5])
+        ordered_paths.extend(repo.core_model_candidates[:5])
+        ordered_paths.extend(repo.train_candidates[:2])
+        ordered_paths.extend(repo.config_entry_candidates[:2])
+        ordered_paths.extend(repo.deployment_entry_candidates[:2])
+    elif training_focus:
+        ordered_paths.extend(repo.train_candidates[:4])
+        ordered_paths.extend(repo.loss_candidates[:2])
+        ordered_paths.extend(repo.architecture_entry_candidates[:3])
+        ordered_paths.extend(repo.config_entry_candidates[:2])
+    elif inference_focus:
+        ordered_paths.extend(repo.inference_candidates[:4])
+        ordered_paths.extend(repo.deployment_entry_candidates[:3])
+        ordered_paths.extend(repo.architecture_entry_candidates[:3])
+    elif config_focus:
+        ordered_paths.extend(repo.config_entry_candidates[:4])
+        ordered_paths.extend(repo.train_candidates[:2])
+        ordered_paths.extend(repo.architecture_entry_candidates[:3])
+
     ordered: list[CodeSymbol] = []
-    for group in (repo.entry_candidates, repo.train_path, repo.infer_path):
-        for symbol in group:
-            if symbol not in ordered:
-                ordered.append(symbol)
+    seen_paths: set[str] = set()
+    for symbol in _symbols_for_paths(repo, ordered_paths):
+        if symbol.path in seen_paths:
+            continue
+        seen_paths.add(symbol.path)
+        ordered.append(symbol)
+
+    if not ordered:
+        for group in (repo.entry_candidates, repo.train_path, repo.infer_path):
+            for symbol in group:
+                if symbol.path not in seen_paths:
+                    seen_paths.add(symbol.path)
+                    ordered.append(symbol)
     return ordered[:12]
 
 
@@ -41,6 +77,8 @@ def build_open_questions(repo: RepoInfo, code_map: list[CodeMapItem], plan: Anal
     questions: list[str] = []
     if not repo.entry_candidates:
         questions.append("[Missing Evidence] No clear model/policy entrypoint was found; inspect repository layout manually.")
+    if not repo.architecture_entry_candidates:
+        questions.append("[Missing Evidence] No architecture-oriented entry candidates were found for the current repository.")
     if not repo.model_candidates:
         questions.append("[Missing Evidence] No obvious model/policy files were found in the current scan.")
     if not repo.train_candidates:
@@ -69,3 +107,41 @@ def build_open_questions(repo: RepoInfo, code_map: list[CodeMapItem], plan: Anal
                 f"[Missing Evidence] `{item.concept}` needs manual confirmation because no direct code hit was found."
             )
     return questions[:8]
+
+
+def _symbols_for_paths(repo: RepoInfo, paths: list[str]) -> list[CodeSymbol]:
+    symbols: list[CodeSymbol] = []
+    for path in paths:
+        matching_symbols = [symbol for symbol in repo.symbols if symbol.path == path]
+        if matching_symbols:
+            chosen = sorted(
+                matching_symbols,
+                key=lambda item: (item.kind != "class", item.line, item.name.lower()),
+            )[0]
+            symbols.append(chosen)
+            continue
+
+        matching_hits = [hit for hit in repo.hits if hit.path == path]
+        if matching_hits:
+            chosen_hit = sorted(matching_hits, key=lambda item: (item.line, item.term.lower()))[0]
+            symbols.append(
+                CodeSymbol(
+                    name=path.rsplit("/", 1)[-1].rsplit(".", 1)[0],
+                    kind="file",
+                    path=path,
+                    line=chosen_hit.line,
+                    evidence=chosen_hit.text or "role-aware reading path candidate",
+                )
+            )
+            continue
+
+        symbols.append(
+            CodeSymbol(
+                name=path.rsplit("/", 1)[-1].rsplit(".", 1)[0],
+                kind="file",
+                path=path,
+                line=1,
+                evidence="role-aware reading path candidate",
+            )
+        )
+    return symbols
