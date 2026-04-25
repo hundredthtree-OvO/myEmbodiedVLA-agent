@@ -1,6 +1,6 @@
 # Study Agent 架构图
 
-这份文档用来补充 [README.md](/E:/my-embodied/README.md) 的实现视角，重点说明当前 `study-agent` 的仓库分析链路、角色分层方式，以及下一步 planned `second-pass reading` 在整体中的位置。
+这份文档用来补充 README.md 的实现视角，重点说明当前 `study-agent` 的仓库分析链路、角色分层方式，以及下一步 planned `second-pass reading` 在整体中的位置。
 
 ## 1. 整体构建链路
 

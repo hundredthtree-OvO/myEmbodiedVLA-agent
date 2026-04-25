@@ -45,6 +45,28 @@ $env:STUDY_AGENT_CODEX_AUTH_PATH="$HOME\.codex\auth.json"
 uv sync
 ```
 
+Python 包依赖：
+
+- `pypdf`：通过 `uv sync` 自动安装，用于 PDF 文本提取
+- `pytest`：开发依赖，用于本地测试
+
+系统依赖：
+
+- `git`：用于 clone 远程仓库，以及执行 GitHub clone probe
+- `Codex` 本地登录凭据：默认读取 `%USERPROFILE%\.codex\auth.json`
+- `Zotero` 本地数据目录：默认读取 `%USERPROFILE%\Zotero`，或由环境变量 / 配置覆盖
+
+可选系统依赖：
+
+- `pdftotext`：当本地 `pypdf` 不可用或 PDF 提取失败时，作为额外 fallback 使用
+
+如果你想先做一轮环境自检，至少确认这几项：
+
+- `git --version` 能正常返回
+- `uv sync` 能成功安装依赖
+- Codex auth 文件存在
+- Zotero 数据目录存在，并且里面有 `zotero.sqlite` 或 `zotero.sqlite.bak`
+
 ## 快速开始
 
 启动 PowerShell 向导页：
