@@ -2,6 +2,8 @@
 
 `study-agent` 是一个 Codex-first 的 VLA 论文-代码对齐 CLI。它面向个人研究工作流：输入论文来源、代码仓库、关注点和 taste profile，由本地规则层准备证据包，再交给 Codex 生成结构化 Markdown 学习笔记。
 
+当前项目 **专门针对Windows系统** ，旨在完善用户在Windows上的工作流。（其实是作者目前只有自己的小笔记本）
+
 第一版重点解决两个问题：
 
 - 读 VLA 论文时，新概念和新架构不够清晰
@@ -34,6 +36,18 @@ $env:PYTHONPATH='src'
 ```
 
 ## 快速开始
+
+直接启动 PowerShell 向导页：
+
+```powershell
+uv run python study_agent_cli.py tui
+```
+
+或者直接运行启动脚本：
+
+```powershell
+.\start-study-agent.ps1
+```
 
 查看当前 profile：
 
@@ -127,6 +141,19 @@ uv run python study_agent_cli.py feedback apply --from notes\demo-study-agent.md
 
 第一版不会做黑盒隐式学习，而是把你的短反馈转成可检查、可编辑的 profile 更新。
 
+### tui
+
+```powershell
+uv run python study_agent_cli.py tui
+```
+
+向导页会自动：
+
+- 在本次进程内设置 `UV_CACHE_DIR=.tmp\uv-cache`
+- 在本次进程内补 `PYTHONPATH=src`
+- 显示 workspace、Codex 状态、Zotero 数据目录、阶段列表
+- 提供固定工作流和快捷动作
+
 ## 输出结构
 
 默认生成的 Markdown 包含：
@@ -191,11 +218,17 @@ uv run python -m unittest discover -s tests
 
 ### P1：做成 Claude Code 风格的 PowerShell 页面
 
-- [ ] 新增交互式入口，例如 `uv run python study_agent_cli.py tui`。
-- [ ] 页面启动后提供固定工作流：选择 Zotero 论文、输入/选择 repo、输入 focus、选择 cleanup 策略、运行分析。
-- [ ] 增加运行状态显示：Zotero 查询、PDF 抽取、repo 准备、Codex 调用、session 保存。
-- [ ] 增加历史 session 浏览：列出 `.study-agent/sessions`，可打开上次 evidence/output。
-- [ ] 增加快捷动作：`codex test`、`cleanup temp`、`cleanup all`、`profile show`。
+- [x] 新增交互式入口，例如 `uv run python study_agent_cli.py tui`。
+- [x] 页面启动后提供固定工作流：选择 Zotero 论文、输入/选择 repo、输入 focus、选择 cleanup 策略、运行分析。
+- [x] 增加运行状态显示：Zotero 查询、PDF 抽取、repo 准备、Codex 调用、session 保存。
+- [x] 增加历史 session 浏览：列出 `.study-agent/sessions`，可打开上次 evidence/output。
+- [x] 增加快捷动作：`codex test`、`cleanup temp`、`cleanup all`、`profile show`。
+- [ ] 如果 `repo` 是 GitHub URL，在正式分析前自动做一次 clone probe；失败时提前报错，并显示代理配置与“改用本地仓库路径”的提示。
+- [ ] 补全“最近使用”输入复用：最近的 Zotero title、repo、focus、cleanup 策略都能直接回填。
+- [ ] 把运行状态区再做清楚一点：区分 `current stage`、`last message` 和 `assistant output preview`，增强“正在工作”的可感知性。
+- [ ] 在 TUI 中增加专门的 GitHub probe cache 清理入口，便于清掉 clone test 的残留探针目录。
+- [ ] 改进 `Open Last Session`：支持更明确地打开或预览 `request.json`、`evidence.md`、`output.md`。
+- [ ] 支持 Zotero 搜索候选列表，减少必须手工精确输入题名的次数。
 
 ### P1：让 taste memory 真正变聪明
 

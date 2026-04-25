@@ -7,21 +7,21 @@ from pathlib import Path
 
 from .analyzer.code import build_code_map, build_open_questions, build_reading_path
 from .analyzer.paper import analyze_paper
-from .cleanup import cleanup_after_analyze, remove_all_caches, remove_pdf_cache
-from .codex_client import CodexUnavailable, assert_codex_ready, run_codex
-from .composer import compose_markdown
+from .cleanup import remove_all_caches, remove_pdf_cache
+from .codex_client import CodexUnavailable, run_codex
 from .config import load_config
-from .ingest import ingest_paper, ingest_repo
-from .models import EvidencePack, StudyArtifact, StudyRequest
-from .planner import build_plan
-from .prompt_builder import build_reflection_prompt, build_study_prompt
+from .github_check import DEFAULT_REPO_URL, check_github_clone
+from .models import StudyRequest
+from .pipeline import execute_analysis
+from .prompt_builder import build_reflection_prompt
 from .profile import apply_feedback, apply_preset, load_profile, save_profile
-from .session_store import create_session_dir, save_session
+from .runtime_env import configure_runtime_environment
 from .taste_memory import append_taste_memory
-from .zotero import find_zotero_item
+from .tui import run_tui
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_runtime_environment()
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -36,6 +36,10 @@ def main(argv: list[str] | None = None) -> int:
             return run_codex_command(args)
         if args.command == "cleanup":
             return run_cleanup(args)
+        if args.command == "github":
+            return run_github_command(args)
+        if args.command == "tui":
+            return run_tui()
     except Exception as exc:
         print(f"study-agent: error: {exc}", file=sys.stderr)
         return 1
@@ -82,26 +86,20 @@ def build_parser() -> argparse.ArgumentParser:
     cleanup = subparsers.add_parser("cleanup", help="Remove study-agent temporary artifacts")
     cleanup.add_argument("--target", choices=["temp", "all"], default="temp")
 
+    github = subparsers.add_parser("github", help="GitHub clone helpers")
+    github_sub = github.add_subparsers(dest="github_command")
+    github_test = github_sub.add_parser("test", help="Check whether git clone works with a shallow clone probe")
+    github_test.add_argument("--repo-url", default=DEFAULT_REPO_URL)
+
+    subparsers.add_parser("tui", help="Launch the interactive PowerShell wizard")
+
     return parser
 
 
 def run_analyze(args: argparse.Namespace) -> int:
-    if not args.paper and not args.zotero_title:
-        raise ValueError("Either --paper or --zotero-title is required.")
-
-    config = load_config()
-    zotero_item = None
-    paper_source = args.paper
-    if args.zotero_title:
-        zotero_item = find_zotero_item(args.zotero_title, config.zotero_data_dir or Path("E:/zoteroData"))
-        if not paper_source and zotero_item.pdf_path:
-            paper_source = str(zotero_item.pdf_path)
-    if not paper_source:
-        raise ValueError("Zotero item was found, but no PDF attachment path was available.")
-
     focus = [item.strip() for item in args.focus.split(",") if item.strip()]
     request = StudyRequest(
-        paper_source=paper_source,
+        paper_source=args.paper,
         repo_source=args.repo,
         focus=focus,
         output_path=Path(args.out),
@@ -109,35 +107,11 @@ def run_analyze(args: argparse.Namespace) -> int:
         engine=args.engine,
         zotero_title=args.zotero_title,
     )
-    profile = load_profile()
-    plan = build_plan(request, profile)
-    paper = ingest_paper(request.paper_source)
-    repo = ingest_repo(request.repo_source, plan.focus_terms)
-    concept_cards = analyze_paper(paper, plan)
-    code_map = build_code_map(repo, concept_cards, plan)
-    reading_path = build_reading_path(repo, plan)
-    open_questions = build_open_questions(repo, code_map, plan)
-    artifact = StudyArtifact(
-        request=request,
-        paper=paper,
-        repo=repo,
-        profile=profile,
-        summary=f"{paper.title} aligned against {repo.path.name}",
-        concept_cards=concept_cards,
-        code_map=code_map,
-        reading_path=reading_path,
-        open_questions=open_questions,
-    )
-
-    evidence = EvidencePack(request=request, paper=paper, repo=repo, profile=profile, zotero_item=zotero_item)
-    markdown = _render(artifact, evidence, args.engine, config)
-    request.output_path.parent.mkdir(parents=True, exist_ok=True)
-    request.output_path.write_text(markdown, encoding="utf-8")
-    removed = cleanup_after_analyze(args.cleanup, request.repo_source)
-    print(f"Wrote {request.output_path}")
-    if removed:
+    result = execute_analysis(request, cleanup_mode=args.cleanup)
+    print(f"Wrote {result.output_path}")
+    if result.cleaned:
         print("Cleaned:")
-        for path in removed:
+        for path in result.cleaned:
             print(f"- {path}")
     return 0
 
@@ -196,15 +170,12 @@ def run_cleanup(args: argparse.Namespace) -> int:
     return 0
 
 
-def _render(artifact: StudyArtifact, evidence: EvidencePack, engine: str, config) -> str:
-    if engine == "codex":
-        assert_codex_ready(config)
-        session_dir = create_session_dir()
-        prompt = build_study_prompt(evidence, config.max_evidence_chars)
-        output = run_codex(prompt, config, Path.cwd(), session_dir / "codex-output.md")
-        save_session(session_dir, evidence, prompt, output)
-        return output
-    return compose_markdown(artifact)
+def run_github_command(args: argparse.Namespace) -> int:
+    if args.github_command != "test":
+        raise ValueError("Missing github command.")
+    result = check_github_clone(args.repo_url)
+    print(result.summary)
+    return 0 if result.success else 1
 
 
 if __name__ == "__main__":
