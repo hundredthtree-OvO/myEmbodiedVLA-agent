@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import os
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -15,6 +16,10 @@ CODE_SUFFIXES = {".py", ".ipynb", ".js", ".jsx", ".ts", ".tsx", ".java", ".cpp",
 SKIP_DIRS = {".git", ".venv", "__pycache__", "node_modules", ".mypy_cache", ".pytest_cache", "dist", "build"}
 TRAIN_NAMES = {"train", "fit", "compute_loss", "loss", "training_step"}
 INFER_NAMES = {"sample", "sample_actions", "predict", "predict_action", "forward", "evaluate", "eval", "inference"}
+
+
+class RepositoryPrepareError(RuntimeError):
+    pass
 
 
 def ingest_paper(source: str) -> PaperInfo:
@@ -95,10 +100,13 @@ def _prepare_repo(source: str, cache_dir: Path) -> Path:
 
     parsed = urlparse(source)
     if parsed.scheme not in {"http", "https"}:
-        raise FileNotFoundError(f"Repository source does not exist: {source}")
+        raise RepositoryPrepareError(
+            f"Repository path does not exist: {source}. "
+            "If you already cloned the repo locally, rerun with `--repo E:\\path\\to\\repo`."
+        )
 
     if shutil.which("git") is None:
-        raise RuntimeError("git is required to clone remote repositories.")
+        raise RepositoryPrepareError("Git is required to clone remote repositories, but it was not found on PATH.")
 
     cache_dir.mkdir(parents=True, exist_ok=True)
     repo_name = Path(parsed.path).stem or "repo"
@@ -106,8 +114,45 @@ def _prepare_repo(source: str, cache_dir: Path) -> Path:
     if target.exists():
         return target.resolve()
 
-    subprocess.run(["git", "clone", "--depth", "1", source, str(target)], check=True)
+    completed = subprocess.run(
+        ["git", "clone", "--depth", "1", source, str(target)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if completed.returncode != 0:
+        if target.exists():
+            shutil.rmtree(target, ignore_errors=True)
+        reason = (completed.stderr.strip() or completed.stdout.strip() or "Unknown git clone failure.")[-800:]
+        git_http = _git_config_value("http.proxy")
+        git_https = _git_config_value("https.proxy")
+        env_http = os.environ.get("HTTP_PROXY", "") or os.environ.get("http_proxy", "")
+        env_https = os.environ.get("HTTPS_PROXY", "") or os.environ.get("https_proxy", "")
+        raise RepositoryPrepareError(
+            f"GitHub clone failed for {source}. "
+            f"If you already cloned the repo locally, rerun with `--repo E:\\path\\to\\repo`. "
+            f"git http.proxy={git_http or '(unset)'}, "
+            f"git https.proxy={git_https or '(unset)'}, "
+            f"env HTTP_PROXY={env_http or '(unset)'}, "
+            f"env HTTPS_PROXY={env_https or '(unset)'}. "
+            f"Reason: {reason}"
+        )
     return target.resolve()
+
+
+def _git_config_value(key: str) -> str:
+    completed = subprocess.run(
+        ["git", "config", "--global", "--get", key],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=10,
+    )
+    if completed.returncode != 0:
+        return ""
+    return completed.stdout.strip()
 
 
 def _iter_code_files(root: Path):

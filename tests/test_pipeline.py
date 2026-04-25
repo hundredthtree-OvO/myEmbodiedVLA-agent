@@ -58,6 +58,43 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("kv_cache", markdown)
         self.assertIn("model.py", markdown)
 
+    def test_offline_pipeline_surfaces_missing_evidence_diagnostics(self) -> None:
+        tmp_path = Path.cwd() / ".tmp" / "test_pipeline_missing_evidence"
+        repo = tmp_path / "repo"
+        repo.mkdir(parents=True, exist_ok=True)
+        paper = tmp_path / "paper.md"
+        paper.write_text("# Sparse Repo\n\nBridge attention is important here.", encoding="utf-8")
+        (repo / "helper.py").write_text("VALUE = 1\n", encoding="utf-8")
+
+        request = StudyRequest(
+            paper_source=str(paper),
+            repo_source=str(repo),
+            focus=["bridge_attention"],
+            output_path=tmp_path / "out.md",
+            engine="offline",
+        )
+        profile = TasteProfile()
+        plan = build_plan(request, profile)
+        paper_info = ingest_paper(request.paper_source)
+        repo_info = ingest_repo(request.repo_source, plan.focus_terms)
+        cards = analyze_paper(paper_info, plan)
+        code_map = build_code_map(repo_info, cards, plan)
+        artifact = StudyArtifact(
+            request=request,
+            paper=paper_info,
+            repo=repo_info,
+            profile=profile,
+            summary="demo",
+            concept_cards=cards,
+            code_map=code_map,
+            reading_path=build_reading_path(repo_info, plan),
+            open_questions=build_open_questions(repo_info, code_map, plan),
+        )
+        markdown = compose_markdown(artifact)
+
+        self.assertIn("[Missing Evidence]", markdown)
+        self.assertIn("code alignment confidence is low", markdown)
+
 
 if __name__ == "__main__":
     unittest.main()

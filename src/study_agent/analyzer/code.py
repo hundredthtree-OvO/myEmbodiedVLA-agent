@@ -40,12 +40,22 @@ def build_reading_path(repo: RepoInfo, plan: AnalysisPlan) -> list[CodeSymbol]:
 def build_open_questions(repo: RepoInfo, code_map: list[CodeMapItem], plan: AnalysisPlan) -> list[str]:
     questions: list[str] = []
     if not repo.entry_candidates:
-        questions.append("No clear model/policy entrypoint was found; inspect repository layout manually.")
+        questions.append("[Missing Evidence] No clear model/policy entrypoint was found; inspect repository layout manually.")
     if not repo.train_path:
-        questions.append("Training path is not confirmed by symbol names; search scripts/configs next.")
+        questions.append("[Missing Evidence] Training path is not confirmed by symbol names; search scripts/configs next.")
     if not repo.infer_path:
-        questions.append("Inference path is not confirmed by symbol names; inspect eval or policy wrappers next.")
+        questions.append("[Missing Evidence] Inference path is not confirmed by symbol names; inspect eval or policy wrappers next.")
+    if len(repo.hits) < 5:
+        questions.append(
+            f"[Missing Evidence] Only {len(repo.hits)} repository keyword hits were found; code alignment confidence is low."
+        )
+    if code_map and all(item.evidence == plan.evidence_labels[1] for item in code_map):
+        questions.append(
+            "[Missing Evidence] All requested concepts are currently inferred rather than directly confirmed in code."
+        )
     for item in code_map:
         if item.evidence == plan.evidence_labels[1]:
-            questions.append(f"`{item.concept}` needs manual confirmation because no direct code hit was found.")
+            questions.append(
+                f"[Missing Evidence] `{item.concept}` needs manual confirmation because no direct code hit was found."
+            )
     return questions[:8]

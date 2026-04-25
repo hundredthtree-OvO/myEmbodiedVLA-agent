@@ -90,7 +90,26 @@ def _repo_block(evidence: EvidencePack) -> str:
     lines.extend(f"- {_symbol(symbol)}" for symbol in repo.infer_path[:12])
     lines.append("Focus/default hits:")
     lines.extend(f"- {_hit(hit)}" for hit in repo.hits[:120])
+    diagnostics = _repo_diagnostics(repo)
+    if diagnostics:
+        lines.append("Repository diagnostics:")
+        lines.extend(f"- {item}" for item in diagnostics)
     return "\n".join(lines)
+
+
+def _repo_diagnostics(repo) -> list[str]:
+    diagnostics: list[str] = []
+    if not repo.entry_candidates:
+        diagnostics.append("No clear model/policy entrypoint was found in the repository evidence.")
+    if not repo.train_path:
+        diagnostics.append("Training path is not directly confirmed by symbol names.")
+    if not repo.infer_path:
+        diagnostics.append("Inference path is not directly confirmed by symbol names.")
+    if len(repo.hits) < 5:
+        diagnostics.append(f"Only {len(repo.hits)} repository hits were found; concept-to-code alignment confidence is low.")
+    if not repo.config_hits:
+        diagnostics.append("No obvious config evidence was found in the current scan.")
+    return diagnostics
 
 
 def _symbol(symbol: CodeSymbol) -> str:

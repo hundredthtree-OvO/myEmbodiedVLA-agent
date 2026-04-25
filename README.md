@@ -24,6 +24,8 @@
 - `--engine codex`：默认主路径，使用 Codex Responses endpoint
 - `--engine offline`：调试用 fallback，只输出规则模板结果
 - `--cleanup`：分析结束后按需清理 PDF cache 或远程仓库 cache
+- 仓库准备失败时会提示改用本地 `--repo E:\path\to\repo`，并输出当前 Git / 环境变量代理信息
+- 低证据分析会显式输出 `[Missing Evidence]`，避免把推断伪装成确定结论
 
 ## 环境
 
@@ -83,6 +85,12 @@ uv run python study_agent_cli.py analyze --zotero-title "World-Value-Action Mode
 uv run python study_agent_cli.py analyze --zotero-title "World-Value-Action Model" --repo https://github.com/Win-commit/WAV --focus "Latent Planning and Iterative Inference" --out notes\WAV-latent-planning.md
 ```
 
+如果远程 GitHub 仓库 clone 失败，但你已经手动把仓库拉到本地：
+
+```powershell
+uv run python study_agent_cli.py analyze --zotero-title "World-Value-Action Model" --repo E:\path\to\WAV --focus "Latent Planning and Iterative Inference" --out notes\WAV-latent-planning.md
+```
+
 如果不想保留本次 PDF 临时缓存和远程 clone 的仓库副本：
 
 ```powershell
@@ -120,6 +128,12 @@ uv run python study_agent_cli.py analyze --paper <paper> --repo <repo> --focus <
 - `--engine`：`codex` 或 `offline`
 - `--model`：单次运行临时覆盖模型，支持 `gpt-5.4` / `gpt-5.5`
 - `--cleanup`：`none`、`temp`、`repo` 或 `all`；默认 `none`
+
+失败行为说明：
+
+- 如果远程 `git clone` 失败，程序会提示改用本地 `--repo E:\path\to\repo`
+- clone 失败信息会带上当前 `git http/https proxy` 和 `HTTP_PROXY/HTTPS_PROXY`
+- Zotero、PDF、repo、Codex 失败现在会按来源分别报错，而不是只给一个模糊异常
 
 ### config
 
@@ -202,6 +216,7 @@ uv run python study_agent_cli.py tui
 
 - `CONFIRMED`：在论文或代码中有直接证据
 - `INFERRED`：由上下文推断，需要人工复核
+- `[Missing Evidence]`：当前仓库扫描或对齐证据不足，需要人工继续确认
 
 ## Codex 接入
 
@@ -217,7 +232,13 @@ C:\path\of\user\.codex\auth.json
 .study-agent/config.json
 ```
 
-`analyze` 默认不静默回退到规则版。如果 Codex 不可用，会直接报错；需要规则调试时显式传 `--engine offline`。
+`analyze` 默认不静默回退到规则版。如果 Codex 不可用，会直接报错；需要规则调试时显式传 `--engine offline`。当前错误消息会尽量区分为：
+
+- `Zotero lookup failed`
+- `PDF extraction failed`
+- `Repository preparation failed`
+- `Codex auth failed`
+- `Codex request failed`
 
 ## Zotero 联动
 
@@ -243,15 +264,16 @@ uv run python -m unittest discover -s tests
 
 ### P0：Foundation Hardening
 
-- [ ] 支持“已手动 clone 的本地仓库优先”：当 GitHub clone 失败时，提示用户改用 `--repo E:\path\to\repo`，并在错误信息里说明当前 Git 代理配置。
-- [ ] 输出“证据不足”诊断区：当 repo 不是目标仓库或 clone 失败时，明确告诉用户本次代码对齐不可用。
-- [ ] 增加更清楚的错误消息：把网络、代理、auth、PDF 抽取、Zotero locked 分成可读的用户提示。
+- [x] 支持“已手动 clone 的本地仓库优先”：当 GitHub clone 失败时，提示用户改用 `--repo E:\path\to\repo`，并在错误信息里说明当前 Git 代理配置。
+- [x] 输出“证据不足”诊断区：当 repo 不是目标仓库或 clone 失败时，明确告诉用户本次代码对齐不可用。
+- [x] 增加更清楚的错误消息：把网络、代理、auth、PDF 抽取、Zotero locked 分成可读的用户提示。
 
 ### P1：Evidence Core
 
 - [ ] 建立统一的 `Concept2Code Tracer`：围绕“论文中的一个研究概念 / 创新点 / 架构部件，在代码中如何被实现、连接、训练、调用”来分析，而不是围绕单一关键词或单一 trace 任务。
 - [ ] 引入 `Concept Card` 作为统一对象：把 focus 抽象为 `concept_name + concept_type + paper_role + possible_code_forms + trace_targets + key_questions`。
 - [ ] 增加 concept type 分类：至少先覆盖 `objective`、`encoder`、`fusion_module`、`action_head`、`world_model`、`tokenization/control`，再根据类型选择不同搜索策略。
+- [ ] 增加最小 `concept alias registry`：先服务 repo 搜索策略和 evidence pack 构建；完整的长期 concept library 继续放在 P3。
 - [ ] 把 repo evidence pack 从简单关键词扫描升级到结构化分类：文件类型分组、入口文件、训练脚本、推理脚本、config/model/loss/data 候选。
 - [ ] 增加 AST 级索引：class/function/import/call 的粗粒度索引，支撑比关键词更稳的候选定位。
 - [ ] 增加 dependency/config 索引：识别 `transformers` / `timm` / Hugging Face 模型名、yaml/json/toml/Hydra/argparse 配置来源。
@@ -259,6 +281,7 @@ uv run python -m unittest discover -s tests
 - [ ] 改进 PDF / paper focus 抽取：更稳定地定位用户指定 section，并优先抽取与 focus 强相关段落。
 - [ ] 第一批 trace 模板作为 `Concept2Code Tracer` 的实例视角落地，而不是顶层主抽象：先支持 `objective/loss trace`、`module/fusion trace`、`architecture diff`。
 - [ ] 输出目标从“找到相关文件”提升到“能解释一个 paper concept 在代码中的实现位置、连接关系、训练/推理参与方式，以及与主流 VLA 的差异”。
+- [ ] 增加 `Evidence Quality Check`：检查每个结论是否同时区分了 paper/code evidence、是否有代码路径支撑、是否明确输出 Missing Evidence。
 
 ### P2：Learning Loop
 
@@ -274,7 +297,8 @@ uv run python -m unittest discover -s tests
 ### P3：Concept Library 与研究输出升级
 
 - [ ] 增加轻量 concept cards / alias cards：先覆盖高频概念，例如 `SigLIP`、`DINOv2`、`JEPA`、`world model`、`bridge attention`、`action head`。
-- [ ] 在输出中新增固定研究章节：论文属于哪类架构、与主流 VLA 的结构差异、Novelty Implementation Cards、Loss Trace、My VLA Borrowing Plan。
+- [ ] 在输出中新增固定研究章节：论文属于哪类架构、与主流 VLA 的结构差异、Concept-Code Mapping Cards、Novelty Implementation Cards、My VLA Borrowing Plan、Missing Evidence / Need Manual Check。
+- [ ] 让 `Concept-Code Mapping Cards` 根据 concept type 自动展开子类型：例如 `objective/loss trace`、`encoder trace`、`fusion trace`、`world model trace`，而不是固定成单一 Loss Trace。
 - [ ] 支持 shape / 变量流深挖模式：对指定函数输出张量形状、数据流和论文公式对应关系。
 - [ ] 支持多论文对比：例如把 WAV、ACoT-VLA、VLA-Adapter 的 planning/reasoning/action head 对齐成表。
 - [ ] 支持图表生成：把论文模块与代码调用链生成 Mermaid 图。
