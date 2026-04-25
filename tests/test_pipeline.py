@@ -61,6 +61,7 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("Architecture entry candidates", markdown)
         self.assertIn("Model candidates", markdown)
         self.assertIn("Candidate reason debug", markdown)
+        self.assertIn("AST ranking debug", markdown)
         self.assertIn("No obvious core model files were found", markdown)
         self.assertIn("No obvious docs/readme files were found", markdown)
 
@@ -106,6 +107,7 @@ class PipelineTests(unittest.TestCase):
         tmp_path = Path.cwd() / ".tmp" / "test_pipeline_architecture_focus"
         repo = tmp_path / "repo"
         (repo / "src" / "demo" / "models").mkdir(parents=True, exist_ok=True)
+        (repo / "src" / "demo" / "models" / "layers").mkdir(parents=True, exist_ok=True)
         (repo / "src" / "demo" / "training").mkdir(parents=True, exist_ok=True)
         (repo / "web_infer_utils" / "client").mkdir(parents=True, exist_ok=True)
 
@@ -113,6 +115,14 @@ class PipelineTests(unittest.TestCase):
         paper.write_text("# Demo Repo\n\nArchitecture matters here.", encoding="utf-8")
         (repo / "src" / "demo" / "models" / "demo_vla.py").write_text(
             "class DemoVLA:\n    pass\n",
+            encoding="utf-8",
+        )
+        (repo / "src" / "demo" / "models" / "vision_backbone.py").write_text(
+            "class VisionBackbone:\n    pass\n",
+            encoding="utf-8",
+        )
+        (repo / "src" / "demo" / "models" / "layers" / "attention.py").write_text(
+            "class Attention:\n    pass\n",
             encoding="utf-8",
         )
         (repo / "src" / "demo" / "training" / "config.py").write_text(
@@ -138,6 +148,8 @@ class PipelineTests(unittest.TestCase):
 
         self.assertGreater(len(reading_path), 0)
         self.assertEqual(reading_path[0].path, "src/demo/models/demo_vla.py")
+        self.assertEqual(reading_path[1].path, "src/demo/models/vision_backbone.py")
+        self.assertEqual(reading_path[2].path, "src/demo/models/layers/attention.py")
 
 
 if __name__ == "__main__":

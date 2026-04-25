@@ -198,9 +198,9 @@ uv run python study_agent_cli.py analyze --zotero-title "World-Value-Action Mode
 ### P1：Evidence Core
 
 - [x] Repo evidence pack 结构化分类
-- [ ] Role-aware ranking MVP：先解决 architecture focus 下的入口排序
-- [ ] 重点文件二次读取
-- [ ] AST / dependency / config 索引
+- [x] Role-aware ranking MVP：已完成 `entry / skeleton / component` 分层与轻量 AST rerank
+- [ ] 重点文件二次读取（important file second-pass reading）
+- [x] Lightweight Python AST / config 索引（仅用于 architecture sorting），full dependency graph 暂未引入
 
 ### P2：Learning Loop
 

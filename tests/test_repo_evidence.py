@@ -24,6 +24,9 @@ class RepoEvidenceTests(unittest.TestCase):
         (repo / "configs" / "model.yaml").write_text("model: demo\n", encoding="utf-8")
         (repo / "models" / "policy.py").write_text("class Policy:\n    pass\n", encoding="utf-8")
         (repo / "models" / "transformer_impl.py").write_text("class TransformerImpl:\n    pass\n", encoding="utf-8")
+        (repo / "models" / "vision_backbone.py").write_text("class VisionBackbone:\n    pass\n", encoding="utf-8")
+        (repo / "models" / "layers").mkdir(parents=True, exist_ok=True)
+        (repo / "models" / "layers" / "attention.py").write_text("class Attention:\n    pass\n", encoding="utf-8")
         (repo / "web_infer_utils" / "client").mkdir(parents=True, exist_ok=True)
         (repo / "web_infer_utils" / "client" / "base_policy.py").write_text("class BasePolicy:\n    pass\n", encoding="utf-8")
         (repo / "losses" / "objective.py").write_text("def compute_loss():\n    pass\n", encoding="utf-8")
@@ -51,15 +54,19 @@ class RepoEvidenceTests(unittest.TestCase):
         self.assertIn("models/transformer_impl.py", repo_info.core_model_candidates)
         self.assertIn("web_infer_utils/client/base_policy.py", repo_info.deployment_policy_candidates)
         self.assertIn("models/policy.py", repo_info.architecture_entry_candidates)
+        self.assertIn("models/vision_backbone.py", repo_info.architecture_skeleton_candidates)
+        self.assertIn("models/layers/attention.py", repo_info.architecture_component_candidates)
         self.assertIn("configs/model.yaml", repo_info.config_entry_candidates)
         self.assertIn("web_infer_utils/client/base_policy.py", repo_info.deployment_entry_candidates)
-        self.assertEqual(repo_info.model_candidates[0], "models/transformer_impl.py")
+        self.assertIn(repo_info.model_candidates[0], repo_info.core_model_candidates)
         self.assertIn("losses/objective.py", repo_info.loss_candidates)
         self.assertIn("data/dataset.py", repo_info.data_candidates)
         self.assertIn("env/robot_env.py", repo_info.env_candidates)
         self.assertIn("utils/helpers.py", repo_info.utils_candidates)
         self.assertIn("README.md", repo_info.docs_candidates)
         self.assertIn("models/policy.py", repo_info.candidate_reasons)
+        self.assertIn("models/policy.py", repo_info.ast_candidate_reasons)
+        self.assertIn("models/policy.py", repo_info.ast_file_tags)
         self.assertTrue(
             any(reason.startswith("architecture_entry:") for reason in repo_info.candidate_reasons["models/policy.py"])
         )
@@ -85,6 +92,9 @@ class RepoEvidenceTests(unittest.TestCase):
         (repo / "train.py").write_text("def train():\n    pass\n", encoding="utf-8")
         (repo / "configs" / "model.yaml").write_text("model: demo\n", encoding="utf-8")
         (repo / "models" / "policy.py").write_text("class Policy:\n    pass\n", encoding="utf-8")
+        (repo / "models" / "vision_backbone.py").write_text("class VisionBackbone:\n    pass\n", encoding="utf-8")
+        (repo / "models" / "layers").mkdir(parents=True, exist_ok=True)
+        (repo / "models" / "layers" / "attention.py").write_text("class Attention:\n    pass\n", encoding="utf-8")
         (repo / "web_infer_utils" / "base_policy.py").write_text("class BasePolicy:\n    pass\n", encoding="utf-8")
         (repo / "loss.py").write_text("def compute_loss():\n    pass\n", encoding="utf-8")
 
@@ -93,6 +103,8 @@ class RepoEvidenceTests(unittest.TestCase):
 
         self.assertIn("File groups:", block)
         self.assertIn("Architecture entry candidates:", block)
+        self.assertIn("Architecture skeleton candidates:", block)
+        self.assertIn("Architecture component candidates:", block)
         self.assertIn("Config entry candidates:", block)
         self.assertIn("Deployment entry candidates:", block)
         self.assertIn("Core model candidates:", block)
@@ -103,6 +115,7 @@ class RepoEvidenceTests(unittest.TestCase):
         self.assertIn("Loss candidates:", block)
         self.assertIn("Docs candidates:", block)
         self.assertIn("Candidate reason debug:", block)
+        self.assertIn("AST ranking debug:", block)
         self.assertIn("Repository diagnostics:", block)
 
     def test_repo_diagnostics_use_standalone_loss_wording(self) -> None:
@@ -179,6 +192,230 @@ class RepoEvidenceTests(unittest.TestCase):
             repo_info.architecture_entry_candidates[0],
             "web_infer_utils/client/websocket_client_policy.py",
         )
+
+    def test_architecture_subcategories_follow_entry_to_skeleton_to_component(self) -> None:
+        root = Path.cwd() / ".tmp" / "test_repo_evidence_architecture_subcategories"
+        repo = root / "repo"
+        (repo / "models" / "layers").mkdir(parents=True, exist_ok=True)
+        (repo / "models" / "modules").mkdir(parents=True, exist_ok=True)
+
+        (repo / "models" / "policy.py").write_text("class Policy:\n    pass\n", encoding="utf-8")
+        (repo / "models" / "vision_backbone.py").write_text("class VisionBackbone:\n    pass\n", encoding="utf-8")
+        (repo / "models" / "action_head.py").write_text("class ActionHead:\n    pass\n", encoding="utf-8")
+        (repo / "models" / "layers" / "attention.py").write_text("class Attention:\n    pass\n", encoding="utf-8")
+        (repo / "models" / "modules" / "projector.py").write_text("class Projector:\n    pass\n", encoding="utf-8")
+        (repo / "configs").mkdir(parents=True, exist_ok=True)
+        (repo / "configs" / "model.yaml").write_text("model: demo\n", encoding="utf-8")
+
+        repo_info = ingest_repo(str(repo), ["architecture", "model"])
+
+        self.assertEqual(repo_info.architecture_entry_candidates[0], "models/policy.py")
+        self.assertIn("models/vision_backbone.py", repo_info.architecture_skeleton_candidates[:3])
+        self.assertIn("models/action_head.py", repo_info.architecture_skeleton_candidates[:3])
+        self.assertIn("models/modules/projector.py", repo_info.architecture_component_candidates[:3])
+        self.assertIn("models/layers/attention.py", repo_info.architecture_component_candidates[:3])
+        self.assertNotIn("models/layers/attention.py", repo_info.architecture_skeleton_candidates[:3])
+
+    def test_ast_rerank_prefers_concrete_model_over_abstract_base(self) -> None:
+        root = Path.cwd() / ".tmp" / "test_repo_evidence_ast_concrete"
+        repo = root / "repo"
+        (repo / "models" / "vlms").mkdir(parents=True, exist_ok=True)
+        (repo / "models" / "vlas").mkdir(parents=True, exist_ok=True)
+
+        (repo / "models" / "vlms" / "base_vlm.py").write_text(
+            "from abc import ABC, abstractmethod\n"
+            "class VLM(ABC):\n"
+            "    @abstractmethod\n"
+            "    def forward(self):\n"
+            "        raise NotImplementedError\n",
+            encoding="utf-8",
+        )
+        (repo / "models" / "vlas" / "openvla.py").write_text(
+            "from models.vlms.base_vlm import VLM\n"
+            "class OpenVLA(VLM):\n"
+            "    def predict_action(self):\n"
+            "        return None\n",
+            encoding="utf-8",
+        )
+        (repo / "train.py").write_text(
+            "from models.vlas.openvla import OpenVLA\n"
+            "model = OpenVLA()\n",
+            encoding="utf-8",
+        )
+
+        repo_info = ingest_repo(str(repo), ["architecture", "model"])
+
+        self.assertEqual(repo_info.architecture_entry_candidates[0], "models/vlas/openvla.py")
+        self.assertIn("abstract_base", repo_info.ast_file_tags["models/vlms/base_vlm.py"])
+        self.assertTrue(
+            any("abstract_base_penalty" in reason for reason in repo_info.ast_candidate_reasons["models/vlms/base_vlm.py"])
+        )
+
+    def test_ast_rerank_prefers_top_level_arch_over_submodule_builder(self) -> None:
+        root = Path.cwd() / ".tmp" / "test_repo_evidence_ast_builder"
+        repo = root / "repo"
+        (repo / "recon" / "model" / "pixel_decoder").mkdir(parents=True, exist_ok=True)
+        (repo / "recon" / "model" / "multimodal_encoder").mkdir(parents=True, exist_ok=True)
+
+        (repo / "recon" / "model" / "recon_arch.py").write_text(
+            "from recon.model.pixel_decoder.builder import build_pixel_decoder\n"
+            "from recon.model.multimodal_encoder.builder import build_vision_tower\n"
+            "class ReconMetaModel:\n"
+            "    def forward(self):\n"
+            "        return build_pixel_decoder(), build_vision_tower()\n",
+            encoding="utf-8",
+        )
+        (repo / "recon" / "model" / "pixel_decoder" / "builder.py").write_text(
+            "def build_pixel_decoder():\n"
+            "    return None\n",
+            encoding="utf-8",
+        )
+        (repo / "recon" / "model" / "multimodal_encoder" / "builder.py").write_text(
+            "def build_vision_tower():\n"
+            "    return None\n",
+            encoding="utf-8",
+        )
+        (repo / "train_vla.py").write_text(
+            "from recon.model.recon_arch import ReconMetaModel\n"
+            "model = ReconMetaModel()\n",
+            encoding="utf-8",
+        )
+
+        repo_info = ingest_repo(str(repo), ["architecture", "model"])
+
+        self.assertEqual(repo_info.architecture_entry_candidates[0], "recon/model/recon_arch.py")
+        self.assertTrue(
+            any("submodule_builder_penalty" in reason for reason in repo_info.ast_candidate_reasons["recon/model/pixel_decoder/builder.py"])
+        )
+
+    def test_ast_parse_failure_does_not_break_ingest(self) -> None:
+        root = Path.cwd() / ".tmp" / "test_repo_evidence_ast_parse_failure"
+        repo = root / "repo"
+        (repo / "models").mkdir(parents=True, exist_ok=True)
+        (repo / "models" / "broken_model.py").write_text("class Broken(\n", encoding="utf-8")
+        (repo / "models" / "policy.py").write_text("class Policy:\n    pass\n", encoding="utf-8")
+
+        repo_info = ingest_repo(str(repo), ["architecture"])
+
+        self.assertIn("models/broken_model.py", repo_info.ast_file_tags)
+        self.assertIn("ast_parse_failed", repo_info.ast_file_tags["models/broken_model.py"])
+
+    def test_ast_rerank_lifts_acot_style_skeleton_and_filters_script_like_component_noise(self) -> None:
+        root = Path.cwd() / ".tmp" / "test_repo_evidence_ast_skeleton_component"
+        repo = root / "repo"
+        (repo / "src" / "openpi" / "models").mkdir(parents=True, exist_ok=True)
+        (repo / "scripts").mkdir(parents=True, exist_ok=True)
+
+        (repo / "src" / "openpi" / "models" / "acot_vla.py").write_text(
+            "from openpi.models.model import BaseModel\n"
+            "from openpi.models.pi0 import Pi0\n"
+            "from openpi.models.vit import VisionTransformer\n"
+            "class ACOTVLA(BaseModel):\n"
+            "    def sample_actions(self):\n"
+            "        return Pi0, VisionTransformer\n",
+            encoding="utf-8",
+        )
+        (repo / "src" / "openpi" / "models" / "model.py").write_text(
+            "import abc\n"
+            "class BaseModel(abc.ABC):\n"
+            "    def compute_loss(self):\n"
+            "        return 0\n"
+            "    def sample_actions(self):\n"
+            "        return None\n",
+            encoding="utf-8",
+        )
+        (repo / "src" / "openpi" / "models" / "pi0.py").write_text(
+            "from openpi.models import model as _model\n"
+            "import openpi.models.vit as vit\n"
+            "class Pi0(_model.BaseModel):\n"
+            "    def sample_actions(self):\n"
+            "        return vit.VisionTransformer\n",
+            encoding="utf-8",
+        )
+        (repo / "src" / "openpi" / "models" / "vit.py").write_text(
+            "class Encoder:\n"
+            "    pass\n"
+            "class VisionTransformer:\n"
+            "    pass\n",
+            encoding="utf-8",
+        )
+        (repo / "src" / "openpi" / "models" / "projector.py").write_text(
+            "class Projector:\n"
+            "    pass\n",
+            encoding="utf-8",
+        )
+        (repo / "scripts" / "compute_norm_stats.py").write_text(
+            "import argparse\n"
+            "def main():\n"
+            "    parser = argparse.ArgumentParser()\n"
+            "    return parser\n",
+            encoding="utf-8",
+        )
+
+        repo_info = ingest_repo(str(repo), ["architecture", "model"])
+
+        self.assertIn("src/openpi/models/model.py", repo_info.architecture_skeleton_candidates[:5])
+        self.assertIn("src/openpi/models/pi0.py", repo_info.architecture_skeleton_candidates[:5])
+        self.assertIn("src/openpi/models/vit.py", repo_info.architecture_skeleton_candidates[:5])
+        self.assertIn("src/openpi/models/projector.py", repo_info.architecture_component_candidates[:5])
+        self.assertNotIn("scripts/compute_norm_stats.py", repo_info.architecture_component_candidates[:5])
+        self.assertIn("script_like", repo_info.ast_file_tags["scripts/compute_norm_stats.py"])
+        self.assertTrue(
+            any("script_penalty" in reason for reason in repo_info.ast_candidate_reasons["scripts/compute_norm_stats.py"])
+        )
+
+    def test_ast_root_reference_expands_flat_world_model_repo_candidates(self) -> None:
+        root = Path.cwd() / ".tmp" / "test_repo_evidence_ast_root_reference"
+        repo = root / "repo"
+        repo.mkdir(parents=True, exist_ok=True)
+
+        (repo / "jepa.py").write_text(
+            "from torch import nn\n"
+            "class JEPA(nn.Module):\n"
+            "    def __init__(self, encoder, predictor):\n"
+            "        super().__init__()\n"
+            "        self.encoder = encoder\n"
+            "        self.predictor = predictor\n"
+            "    def encode(self, info):\n"
+            "        return info\n"
+            "    def predict(self, emb, act_emb):\n"
+            "        return emb\n"
+            "    def rollout(self, info, action_sequence):\n"
+            "        return info\n"
+            "    def get_cost(self, info_dict, action_candidates):\n"
+            "        return action_candidates\n",
+            encoding="utf-8",
+        )
+        (repo / "module.py").write_text(
+            "from torch import nn\n"
+            "class Transformer(nn.Module):\n"
+            "    pass\n"
+            "class Embedder(nn.Module):\n"
+            "    pass\n"
+            "class ARPredictor(nn.Module):\n"
+            "    pass\n"
+            "class Attention(nn.Module):\n"
+            "    pass\n",
+            encoding="utf-8",
+        )
+        (repo / "train.py").write_text(
+            "from jepa import JEPA\n"
+            "from module import ARPredictor, Embedder\n"
+            "model = JEPA(Embedder(), ARPredictor())\n",
+            encoding="utf-8",
+        )
+        (repo / "eval.py").write_text(
+            "from jepa import JEPA\n"
+            "def run(model: JEPA):\n"
+            "    return model\n",
+            encoding="utf-8",
+        )
+
+        repo_info = ingest_repo(str(repo), ["architecture", "model"])
+
+        self.assertIn("jepa.py", repo_info.architecture_entry_candidates[:3])
+        self.assertIn("module.py", repo_info.architecture_skeleton_candidates[:5])
+        self.assertTrue(any("world_model_bonus" in reason for reason in repo_info.ast_candidate_reasons["jepa.py"]))
 
 
 if __name__ == "__main__":

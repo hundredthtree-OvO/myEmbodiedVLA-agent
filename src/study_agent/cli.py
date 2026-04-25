@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .analyzer.code import build_code_map, build_open_questions, build_reading_path
 from .analyzer.paper import analyze_paper
-from .cleanup import remove_all_caches, remove_pdf_cache
+from .cleanup import remove_all_caches, remove_temp_artifacts
 from .codex_client import CodexUnavailable, run_codex
 from .config import load_config, save_config, validate_model_name, with_model
 from .github_check import DEFAULT_REPO_URL, check_github_clone
@@ -191,7 +191,7 @@ def run_codex_command(args: argparse.Namespace) -> int:
 
 
 def run_cleanup(args: argparse.Namespace) -> int:
-    removed = remove_all_caches() if args.target == "all" else remove_pdf_cache()
+    removed = remove_all_caches() if args.target == "all" else remove_temp_artifacts()
     if not removed:
         print("Nothing to clean.")
         return 0

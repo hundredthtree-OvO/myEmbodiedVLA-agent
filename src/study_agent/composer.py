@@ -53,6 +53,8 @@ def compose_markdown(artifact: StudyArtifact) -> str:
         lines.append("- File groups: none")
 
     _append_candidate_group(lines, "Architecture entry candidates", artifact.repo.architecture_entry_candidates)
+    _append_candidate_group(lines, "Architecture skeleton candidates", artifact.repo.architecture_skeleton_candidates)
+    _append_candidate_group(lines, "Architecture component candidates", artifact.repo.architecture_component_candidates)
     _append_candidate_group(lines, "Config entry candidates", artifact.repo.config_entry_candidates)
     _append_candidate_group(lines, "Deployment entry candidates", artifact.repo.deployment_entry_candidates)
     _append_candidate_group(lines, "Core model candidates", artifact.repo.core_model_candidates)
@@ -79,6 +81,10 @@ def compose_markdown(artifact: StudyArtifact) -> str:
     if debug_lines:
         lines.append("- Candidate reason debug:")
         lines.extend(debug_lines)
+    ast_debug_lines = _ast_reason_lines(artifact.repo)
+    if ast_debug_lines:
+        lines.append("- AST ranking debug:")
+        lines.extend(ast_debug_lines)
 
     lines.extend(["", "## 4. 论文模块 -> 代码模块映射", ""])
     for item in artifact.code_map:
@@ -169,6 +175,8 @@ def _candidate_reason_lines(repo) -> list[str]:
     seen: set[str] = set()
     for title, values in (
         ("architecture_entry", repo.architecture_entry_candidates),
+        ("architecture_skeleton", repo.architecture_skeleton_candidates),
+        ("architecture_component", repo.architecture_component_candidates),
         ("config_entry", repo.config_entry_candidates),
         ("deployment_entry", repo.deployment_entry_candidates),
     ):
@@ -179,4 +187,24 @@ def _candidate_reason_lines(repo) -> list[str]:
             reasons = repo.candidate_reasons.get(path, [])
             if reasons:
                 lines.append(f"  - `{title}` :: `{path}` => {', '.join(reasons[:6])}")
+    return lines
+
+
+def _ast_reason_lines(repo) -> list[str]:
+    lines: list[str] = []
+    for title, values in (
+        ("architecture_entry", repo.architecture_entry_candidates[:4]),
+        ("architecture_skeleton", repo.architecture_skeleton_candidates[:3]),
+        ("architecture_component", repo.architecture_component_candidates[:3]),
+    ):
+        for path in values:
+            tags = repo.ast_file_tags.get(path, [])
+            reasons = repo.ast_candidate_reasons.get(path, [])
+            detail: list[str] = []
+            if tags:
+                detail.append(f"tags={', '.join(tags[:6])}")
+            if reasons:
+                detail.append(f"reasons={', '.join(reasons[:6])}")
+            if detail:
+                lines.append(f"  - `{title}` :: `{path}` => {' | '.join(detail)}")
     return lines

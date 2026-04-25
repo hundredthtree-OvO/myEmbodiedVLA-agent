@@ -37,24 +37,28 @@ def build_reading_path(repo: RepoInfo, plan: AnalysisPlan) -> list[CodeSymbol]:
 
     ordered_paths: list[str] = []
     if architecture_focus or not (training_focus or inference_focus or config_focus):
-        ordered_paths.extend(repo.architecture_entry_candidates[:5])
-        ordered_paths.extend(repo.core_model_candidates[:5])
-        ordered_paths.extend(repo.train_candidates[:2])
+        ordered_paths.extend(repo.architecture_entry_candidates[:4])
+        ordered_paths.extend(repo.architecture_skeleton_candidates[:3])
+        ordered_paths.extend(repo.architecture_component_candidates[:2])
+        ordered_paths.extend(repo.core_model_candidates[:2])
         ordered_paths.extend(repo.config_entry_candidates[:2])
-        ordered_paths.extend(repo.deployment_entry_candidates[:2])
+        ordered_paths.extend(repo.deployment_entry_candidates[:1])
     elif training_focus:
         ordered_paths.extend(repo.train_candidates[:4])
         ordered_paths.extend(repo.loss_candidates[:2])
         ordered_paths.extend(repo.architecture_entry_candidates[:3])
+        ordered_paths.extend(repo.architecture_skeleton_candidates[:2])
         ordered_paths.extend(repo.config_entry_candidates[:2])
     elif inference_focus:
         ordered_paths.extend(repo.inference_candidates[:4])
         ordered_paths.extend(repo.deployment_entry_candidates[:3])
         ordered_paths.extend(repo.architecture_entry_candidates[:3])
+        ordered_paths.extend(repo.architecture_skeleton_candidates[:2])
     elif config_focus:
         ordered_paths.extend(repo.config_entry_candidates[:4])
         ordered_paths.extend(repo.train_candidates[:2])
         ordered_paths.extend(repo.architecture_entry_candidates[:3])
+        ordered_paths.extend(repo.architecture_skeleton_candidates[:2])
 
     ordered: list[CodeSymbol] = []
     seen_paths: set[str] = set()
@@ -79,6 +83,8 @@ def build_open_questions(repo: RepoInfo, code_map: list[CodeMapItem], plan: Anal
         questions.append("[Missing Evidence] No clear model/policy entrypoint was found; inspect repository layout manually.")
     if not repo.architecture_entry_candidates:
         questions.append("[Missing Evidence] No architecture-oriented entry candidates were found for the current repository.")
+    if repo.architecture_entry_candidates and not repo.architecture_skeleton_candidates:
+        questions.append("[Missing Evidence] Architecture entry files were found, but no architecture skeleton files were confidently separated yet.")
     if not repo.model_candidates:
         questions.append("[Missing Evidence] No obvious model/policy files were found in the current scan.")
     if not repo.train_candidates:

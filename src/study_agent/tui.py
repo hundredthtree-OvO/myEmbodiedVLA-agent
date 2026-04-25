@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from .cleanup import remove_all_caches, remove_pdf_cache
+from .cleanup import remove_all_caches, remove_temp_artifacts
 from .codex_client import CodexUnavailable, assert_codex_ready, run_codex
 from .config import SUPPORTED_MODELS, load_config, with_model
 from .github_check import DEFAULT_REPO_URL, check_github_clone
@@ -229,7 +229,7 @@ def _show_profile() -> None:
 
 
 def _run_cleanup(target: str) -> None:
-    removed = remove_all_caches() if target == "all" else remove_pdf_cache()
+    removed = remove_all_caches() if target == "all" else remove_temp_artifacts()
     if not removed:
         print("\nNothing to clean.\n")
         return

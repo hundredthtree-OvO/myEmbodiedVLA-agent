@@ -7,6 +7,12 @@ import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
 
+from .ast_index import build_python_ast_index
+from .graph_rank import (
+    rerank_architecture_component_candidates,
+    rerank_architecture_entry_candidates,
+    rerank_architecture_skeleton_candidates,
+)
 from .models import CodeHit, CodeSymbol, PaperInfo, PaperSection, RepoInfo
 from .pdf import extract_pdf_text
 
@@ -147,6 +153,43 @@ def ingest_repo(source: str, focus: list[str], cache_dir: Path = Path(".study-ag
     file_groups = _build_file_groups(rel_paths)
     repo_tokens = _repo_name_tokens(repo_path)
     role_candidates, candidate_reasons = _build_role_candidates(rel_paths, file_groups, repo_tokens)
+    ast_index = build_python_ast_index(repo_path, rel_paths)
+    reranked_architecture_entry, entry_ast_reasons, entry_ast_tags = rerank_architecture_entry_candidates(
+        role_candidates["architecture_entry"],
+        _candidate_list(file_groups, "train_scripts", limit=8),
+        _candidate_list(file_groups, "inference_scripts", limit=8),
+        role_candidates["config_entry"][:8],
+        role_candidates["deployment_entry"][:8],
+        ast_index,
+    )
+    role_candidates["architecture_entry"] = reranked_architecture_entry
+    reranked_architecture_skeleton, skeleton_ast_reasons, skeleton_ast_tags = rerank_architecture_skeleton_candidates(
+        role_candidates["architecture_skeleton"],
+        role_candidates["architecture_entry"],
+        _candidate_list(file_groups, "core_model", limit=16),
+        _candidate_list(file_groups, "train_scripts", limit=8),
+        _candidate_list(file_groups, "inference_scripts", limit=8),
+        role_candidates["config_entry"][:8],
+        role_candidates["deployment_entry"][:8],
+        ast_index,
+    )
+    role_candidates["architecture_skeleton"] = reranked_architecture_skeleton
+    reranked_architecture_component, component_ast_reasons, component_ast_tags = rerank_architecture_component_candidates(
+        role_candidates["architecture_component"],
+        role_candidates["architecture_skeleton"],
+        _candidate_list(file_groups, "core_model", limit=16),
+        ast_index,
+    )
+    role_candidates["architecture_component"] = reranked_architecture_component
+    ast_candidate_reasons = _merge_reason_maps(
+        _prefix_reason_map("architecture_entry", entry_ast_reasons),
+        _prefix_reason_map("architecture_skeleton", skeleton_ast_reasons),
+        _prefix_reason_map("architecture_component", component_ast_reasons),
+    )
+    all_ast_file_tags = {path: index.tags for path, index in ast_index.items() if index.tags}
+    all_ast_file_tags.update(entry_ast_tags)
+    all_ast_file_tags.update(skeleton_ast_tags)
+    all_ast_file_tags.update(component_ast_tags)
     entry_candidates = _candidate_symbols(
         _merge_role_entry_paths(role_candidates, file_groups),
         symbols,
@@ -162,6 +205,8 @@ def ingest_repo(source: str, focus: list[str], cache_dir: Path = Path(".study-ag
         file_groups=file_groups,
         entry_candidates=entry_candidates[:8],
         architecture_entry_candidates=role_candidates["architecture_entry"][:8],
+        architecture_skeleton_candidates=role_candidates["architecture_skeleton"][:8],
+        architecture_component_candidates=role_candidates["architecture_component"][:8],
         config_entry_candidates=role_candidates["config_entry"][:8],
         deployment_entry_candidates=role_candidates["deployment_entry"][:8],
         docs_candidates=_candidate_list(file_groups, "docs"),
@@ -176,6 +221,8 @@ def ingest_repo(source: str, focus: list[str], cache_dir: Path = Path(".study-ag
         env_candidates=_candidate_list(file_groups, "env_robot_interface"),
         utils_candidates=_candidate_list(file_groups, "utils"),
         candidate_reasons=candidate_reasons,
+        ast_candidate_reasons=ast_candidate_reasons,
+        ast_file_tags=all_ast_file_tags,
         symbols=symbols[:500],
         hits=hits[:250],
         config_hits=config_hits[:80],
@@ -465,6 +512,8 @@ def _build_role_candidates(
     repo_tokens: set[str],
 ) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
     architecture_scored: list[tuple[str, list[str], int]] = []
+    architecture_skeleton_scored: list[tuple[str, list[str], int]] = []
+    architecture_component_scored: list[tuple[str, list[str], int]] = []
     config_scored: list[tuple[str, list[str], int]] = []
     deployment_scored: list[tuple[str, list[str], int]] = []
     candidate_reasons: dict[str, list[str]] = {}
@@ -473,7 +522,23 @@ def _build_role_candidates(
         arch_reasons = _architecture_entry_reasons(path, file_groups, repo_tokens)
         if arch_reasons:
             architecture_scored.append((path, arch_reasons, _architecture_entry_score(path, arch_reasons)))
-            candidate_reasons[path] = [f"architecture_entry:{reason}" for reason in arch_reasons]
+            candidate_reasons.setdefault(path, []).extend(f"architecture_entry:{reason}" for reason in arch_reasons)
+
+        skeleton_reasons = _architecture_skeleton_reasons(path, file_groups, repo_tokens)
+        if skeleton_reasons:
+            architecture_skeleton_scored.append((path, skeleton_reasons, _architecture_skeleton_score(path, skeleton_reasons)))
+            candidate_reasons.setdefault(path, []).extend(
+                f"architecture_skeleton:{reason}" for reason in skeleton_reasons
+            )
+
+        component_reasons = _architecture_component_reasons(path, file_groups, repo_tokens)
+        if component_reasons:
+            architecture_component_scored.append(
+                (path, component_reasons, _architecture_component_score(path, component_reasons))
+            )
+            candidate_reasons.setdefault(path, []).extend(
+                f"architecture_component:{reason}" for reason in component_reasons
+            )
 
         config_reasons = _config_entry_reasons(path, file_groups)
         if config_reasons:
@@ -489,9 +554,11 @@ def _build_role_candidates(
 
     return (
         {
-            "architecture_entry": _sort_role_candidates(architecture_scored),
-            "config_entry": _sort_role_candidates(config_scored),
-            "deployment_entry": _sort_role_candidates(deployment_scored),
+            "architecture_entry": _sort_role_candidates(architecture_scored, limit=16),
+            "architecture_skeleton": _sort_role_candidates(architecture_skeleton_scored, limit=16),
+            "architecture_component": _sort_role_candidates(architecture_component_scored, limit=16),
+            "config_entry": _sort_role_candidates(config_scored, limit=16),
+            "deployment_entry": _sort_role_candidates(deployment_scored, limit=16),
         },
         candidate_reasons,
     )
@@ -504,12 +571,12 @@ def _architecture_entry_reasons(path: str, file_groups: dict[str, list[str]], re
     stem = Path(lowered).stem
     reasons: list[str] = []
 
-    if _is_noise_or_metadata_path(lowered):
+    if _is_noise_or_metadata_path(lowered) or Path(lowered).suffix not in CODE_SUFFIXES:
         return reasons
 
     model_namespaces = {"model", "models", "vlm", "vlms", "vla", "vlas"}
-    assembly_tokens = {"arch", "builder", "model", "vla", "vlm", "policy"}
-    assembly_stems = {"builder", "model"}
+    entry_tokens = {"arch", "builder", "model", "vla", "vlm", "policy"}
+    entry_stems = {"builder", "model", "policy"}
 
     if path in file_groups.get("core_model", []):
         reasons.append("core_model_group")
@@ -517,16 +584,119 @@ def _architecture_entry_reasons(path: str, file_groups: dict[str, list[str]], re
         reasons.append("model_namespace")
     if any(part in {"vlms", "vlas"} for part in parts):
         reasons.append("vla_namespace")
-    if stem in assembly_stems or stem.endswith("_arch") or stem.endswith("_model") or stem.endswith("_vla") or stem.endswith("_vlm"):
-        reasons.append("assembly_filename")
-    matched_tokens = sorted(token for token in assembly_tokens if token in tokens)
-    reasons.extend(f"assembly_token:{token}" for token in matched_tokens[:2])
+    if stem in entry_stems or stem.endswith(("_arch", "_model", "_vla", "_vlm", "_policy")):
+        reasons.append("entry_filename")
+    matched_tokens = sorted(token for token in entry_tokens if token in tokens)
+    reasons.extend(f"entry_token:{token}" for token in matched_tokens[:2])
     matched_repo_tokens = sorted(token for token in repo_tokens if token and token in tokens and token not in {"repo"})
     reasons.extend(f"project_stem_match:{token}" for token in matched_repo_tokens[:2])
 
     if not reasons:
         return reasons
 
+    if Path(lowered).name == "__init__.py":
+        return []
+    return reasons
+
+
+def _architecture_skeleton_reasons(path: str, file_groups: dict[str, list[str]], repo_tokens: set[str]) -> list[str]:
+    lowered = path.lower()
+    parts = Path(lowered).parts
+    tokens = _path_tokens(lowered)
+    stem = Path(lowered).stem
+    reasons: list[str] = []
+
+    if _is_noise_or_metadata_path(lowered) or Path(lowered).suffix not in CODE_SUFFIXES:
+        return reasons
+
+    model_namespaces = {"model", "models", "vlm", "vlms", "vla", "vlas"}
+    skeleton_namespaces = {"backbone", "backbones", "head", "heads", "encoder", "encoders", "decoder", "decoders"}
+    skeleton_tokens = {"backbone", "head", "encoder", "decoder", "neck", "trunk"}
+    skeleton_suffixes = ("_backbone", "_head", "_encoder", "_decoder", "_trunk", "_neck")
+
+    if path in file_groups.get("core_model", []):
+        reasons.append("core_model_group")
+    if any(part in model_namespaces for part in parts):
+        reasons.append("model_namespace")
+    if any(part in {"vlms", "vlas"} for part in parts):
+        reasons.append("vla_namespace")
+    if any(part in skeleton_namespaces for part in parts):
+        reasons.append("skeleton_namespace")
+    if stem in skeleton_tokens or stem.endswith(skeleton_suffixes):
+        reasons.append("skeleton_filename")
+    matched_tokens = sorted(token for token in skeleton_tokens if token in tokens)
+    reasons.extend(f"skeleton_token:{token}" for token in matched_tokens[:2])
+    matched_repo_tokens = sorted(token for token in repo_tokens if token and token in tokens and token not in {"repo"})
+    reasons.extend(f"project_stem_match:{token}" for token in matched_repo_tokens[:2])
+
+    if not any(
+        reason == "skeleton_namespace" or reason == "skeleton_filename" or reason.startswith("skeleton_token:")
+        for reason in reasons
+    ):
+        return []
+    if Path(lowered).name == "__init__.py":
+        return []
+    return reasons
+
+
+def _architecture_component_reasons(path: str, file_groups: dict[str, list[str]], repo_tokens: set[str]) -> list[str]:
+    lowered = path.lower()
+    parts = Path(lowered).parts
+    tokens = _path_tokens(lowered)
+    stem = Path(lowered).stem
+    reasons: list[str] = []
+
+    if _is_noise_or_metadata_path(lowered) or Path(lowered).suffix not in CODE_SUFFIXES:
+        return reasons
+
+    model_namespaces = {"model", "models", "vlm", "vlms", "vla", "vlas"}
+    component_namespaces = {"layer", "layers", "module", "modules", "block", "blocks", "component", "components"}
+    component_tokens = {
+        "attention",
+        "projector",
+        "adapter",
+        "embed",
+        "embedding",
+        "block",
+        "layer",
+        "module",
+        "mlp",
+        "ffn",
+        "patch",
+        "norm",
+    }
+    component_suffixes = (
+        "_attention",
+        "_projector",
+        "_adapter",
+        "_block",
+        "_layer",
+        "_module",
+        "_embedding",
+        "_embed",
+        "_mlp",
+        "_ffn",
+        "_patch",
+    )
+
+    if path in file_groups.get("core_model", []):
+        reasons.append("core_model_group")
+    if any(part in model_namespaces for part in parts):
+        reasons.append("model_namespace")
+    if any(part in component_namespaces for part in parts):
+        reasons.append("component_namespace")
+    if stem in component_tokens or stem.endswith(component_suffixes):
+        reasons.append("component_filename")
+    matched_tokens = sorted(token for token in component_tokens if token in tokens)
+    reasons.extend(f"component_token:{token}" for token in matched_tokens[:2])
+    matched_repo_tokens = sorted(token for token in repo_tokens if token and token in tokens and token not in {"repo"})
+    reasons.extend(f"project_stem_match:{token}" for token in matched_repo_tokens[:2])
+
+    if not any(
+        reason == "component_namespace" or reason == "component_filename" or reason.startswith("component_token:")
+        for reason in reasons
+    ):
+        return []
     if Path(lowered).name == "__init__.py":
         return []
     return reasons
@@ -583,12 +753,72 @@ def _architecture_entry_score(path: str, reasons: list[str]) -> int:
             score += 3
         elif reason == "vla_namespace":
             score += 4
-        elif reason == "assembly_filename":
-            score += 5
-        elif reason.startswith("assembly_token:"):
+        elif reason == "entry_filename":
+            score += 6
+        elif reason.startswith("entry_token:"):
             score += 3
         elif reason.startswith("project_stem_match:"):
             score += 2
+    if _is_component_like_path(path):
+        score -= 6
+    elif _is_skeleton_like_path(path):
+        score -= 2
+    if _is_deployment_like_path(path):
+        score -= 8
+    if Path(path.lower()).name == "__init__.py":
+        score -= 6
+    if _is_test_file(path.lower()):
+        score -= 4
+    return score
+
+
+def _architecture_skeleton_score(path: str, reasons: list[str]) -> int:
+    score = 0
+    for reason in reasons:
+        if reason == "core_model_group":
+            score += 4
+        elif reason == "model_namespace":
+            score += 2
+        elif reason == "vla_namespace":
+            score += 2
+        elif reason == "skeleton_namespace":
+            score += 4
+        elif reason == "skeleton_filename":
+            score += 5
+        elif reason.startswith("skeleton_token:"):
+            score += 3
+        elif reason.startswith("project_stem_match:"):
+            score += 1
+    if _is_component_like_path(path):
+        score -= 3
+    if "backbone" in _path_tokens(path):
+        score += 2
+    if _is_deployment_like_path(path):
+        score -= 6
+    if Path(path.lower()).name == "__init__.py":
+        score -= 6
+    if _is_test_file(path.lower()):
+        score -= 4
+    return score
+
+
+def _architecture_component_score(path: str, reasons: list[str]) -> int:
+    score = 0
+    for reason in reasons:
+        if reason == "core_model_group":
+            score += 3
+        elif reason == "model_namespace":
+            score += 2
+        elif reason == "component_namespace":
+            score += 4
+        elif reason == "component_filename":
+            score += 5
+        elif reason.startswith("component_token:"):
+            score += 3
+        elif reason.startswith("project_stem_match:"):
+            score += 1
+    if _is_deployment_like_path(path):
+        score -= 6
     if Path(path.lower()).name == "__init__.py":
         score -= 6
     if _is_test_file(path.lower()):
@@ -644,10 +874,27 @@ def _sort_role_candidates(scored: list[tuple[str, list[str], int]], limit: int =
     return result
 
 
+def _merge_reason_maps(*maps: dict[str, list[str]]) -> dict[str, list[str]]:
+    merged: dict[str, list[str]] = {}
+    for mapping in maps:
+        for path, reasons in mapping.items():
+            bucket = merged.setdefault(path, [])
+            for reason in reasons:
+                if reason not in bucket:
+                    bucket.append(reason)
+    return merged
+
+
+def _prefix_reason_map(prefix: str, mapping: dict[str, list[str]]) -> dict[str, list[str]]:
+    return {path: [f"{prefix}:{reason}" for reason in reasons] for path, reasons in mapping.items()}
+
+
 def _merge_role_entry_paths(role_candidates: dict[str, list[str]], file_groups: dict[str, list[str]], limit: int = 8) -> list[str]:
     merged: list[str] = []
     ordered_groups = [
         role_candidates.get("architecture_entry", []),
+        role_candidates.get("architecture_skeleton", []),
+        role_candidates.get("architecture_component", []),
         _candidate_list(file_groups, "train_scripts"),
         role_candidates.get("config_entry", []),
         role_candidates.get("deployment_entry", []),
@@ -735,6 +982,24 @@ def _path_depth(path: str) -> int:
 
 def _path_tokens(path: str) -> set[str]:
     return {token for token in re.split(r"[^a-z0-9]+", path.lower()) if token}
+
+
+def _is_skeleton_like_path(path: str) -> bool:
+    tokens = _path_tokens(path)
+    return any(token in tokens for token in {"backbone", "head", "encoder", "decoder", "trunk", "neck"})
+
+
+def _is_component_like_path(path: str) -> bool:
+    tokens = _path_tokens(path)
+    return any(
+        token in tokens
+        for token in {"attention", "projector", "adapter", "embed", "embedding", "block", "layer", "module", "mlp", "ffn", "patch", "norm"}
+    )
+
+
+def _is_deployment_like_path(path: str) -> bool:
+    tokens = _path_tokens(path)
+    return any(token in tokens for token in {"client", "server", "deploy", "runtime", "websocket", "serve"})
 
 
 def _pattern_matches(pattern: str, lowered_path: str, tokens: set[str], parts: tuple[str, ...]) -> bool:
