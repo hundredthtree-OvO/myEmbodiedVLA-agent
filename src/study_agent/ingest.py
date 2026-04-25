@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
-import os
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -13,9 +13,35 @@ from .pdf import extract_pdf_text
 
 TEXT_SUFFIXES = {".md", ".txt", ".tex", ".rst"}
 CODE_SUFFIXES = {".py", ".ipynb", ".js", ".jsx", ".ts", ".tsx", ".java", ".cpp", ".cc", ".h", ".hpp", ".rs"}
+CONFIG_SUFFIXES = {".yaml", ".yml", ".json", ".toml", ".ini"}
+DOC_SUFFIXES = {".md", ".rst", ".txt"}
+REPO_TEXT_SUFFIXES = CODE_SUFFIXES | CONFIG_SUFFIXES | DOC_SUFFIXES
 SKIP_DIRS = {".git", ".venv", "__pycache__", "node_modules", ".mypy_cache", ".pytest_cache", "dist", "build"}
 TRAIN_NAMES = {"train", "fit", "compute_loss", "loss", "training_step"}
 INFER_NAMES = {"sample", "sample_actions", "predict", "predict_action", "forward", "evaluate", "eval", "inference"}
+FILE_GROUP_ORDER = [
+    "docs",
+    "train_scripts",
+    "inference_scripts",
+    "configs",
+    "model_policy",
+    "loss_objective",
+    "data",
+    "env_robot_interface",
+    "utils",
+]
+GROUP_PATTERNS: dict[str, tuple[str, ...]] = {
+    "docs": ("readme", "docs/", ".md", ".rst", ".txt"),
+    "train_scripts": ("train", "trainer", "fit", "training"),
+    "inference_scripts": ("infer", "eval", "predict", "sample", "deploy", "serve"),
+    "configs": ("config", "configs/", ".yaml", ".yml", ".json", ".toml", ".ini"),
+    "model_policy": ("model", "models/", "policy", "agent", "network", "backbone", "encoder", "decoder"),
+    "loss_objective": ("loss", "objective", "criterion"),
+    "data": ("data", "dataset", "dataloader", "loader", "processor", "tokenizer"),
+    "env_robot_interface": ("env", "environment", "robot", "sim", "wrapper", "controller", "interface"),
+    "utils": ("utils", "common", "helpers"),
+}
+GROUP_LIMIT = 12
 
 
 class RepositoryPrepareError(RuntimeError):
@@ -61,21 +87,25 @@ def ingest_paper(source: str) -> PaperInfo:
 
 def ingest_repo(source: str, focus: list[str], cache_dir: Path = Path(".study-agent") / "repos") -> RepoInfo:
     repo_path = _prepare_repo(source, cache_dir)
-    files = list(_iter_code_files(repo_path))
+    files = list(_iter_repo_files(repo_path))
     symbols: list[CodeSymbol] = []
     hits: list[CodeHit] = []
     config_hits: list[CodeHit] = []
 
     terms = _analysis_terms(focus)
+    rel_paths: list[str] = []
     for file_path in files:
         rel = file_path.relative_to(repo_path).as_posix()
+        rel_paths.append(rel)
         text = file_path.read_text(encoding="utf-8", errors="replace")
-        symbols.extend(_extract_symbols(rel, text))
+        if file_path.suffix.lower() in CODE_SUFFIXES:
+            symbols.extend(_extract_symbols(rel, text))
         file_hits = _find_hits(rel, text, terms)
         hits.extend(file_hits)
-        if "config" in rel.lower() or "setting" in rel.lower():
+        if "config" in rel.lower() or file_path.suffix.lower() in CONFIG_SUFFIXES:
             config_hits.extend(file_hits)
 
+    file_groups = _build_file_groups(rel_paths)
     entry_candidates = _rank_entry_candidates(symbols, hits)
     train_path = _symbols_by_names(symbols, TRAIN_NAMES)
     infer_path = _symbols_by_names(symbols, INFER_NAMES)
@@ -84,7 +114,13 @@ def ingest_repo(source: str, focus: list[str], cache_dir: Path = Path(".study-ag
         source=source,
         path=repo_path,
         files_scanned=len(files),
+        file_groups=file_groups,
         entry_candidates=entry_candidates[:8],
+        train_candidates=_candidate_list(file_groups, "train_scripts"),
+        inference_candidates=_candidate_list(file_groups, "inference_scripts"),
+        config_candidates=_candidate_list(file_groups, "configs"),
+        model_candidates=_candidate_list(file_groups, "model_policy"),
+        data_candidates=_candidate_list(file_groups, "data"),
         symbols=symbols[:500],
         hits=hits[:250],
         config_hits=config_hits[:80],
@@ -155,14 +191,20 @@ def _git_config_value(key: str) -> str:
     return completed.stdout.strip()
 
 
-def _iter_code_files(root: Path):
+def _iter_repo_files(root: Path):
     for path in root.rglob("*"):
         if not path.is_file():
             continue
         if any(part in SKIP_DIRS for part in path.parts):
             continue
-        if path.suffix.lower() in CODE_SUFFIXES or path.name.lower() in {"readme.md", "config.yaml", "config.yml"}:
+        if _should_scan_file(path):
             yield path
+
+
+def _should_scan_file(path: Path) -> bool:
+    suffix = path.suffix.lower()
+    name = path.name.lower()
+    return suffix in REPO_TEXT_SUFFIXES or name.startswith("readme")
 
 
 def _extract_title(text: str) -> str | None:
@@ -247,7 +289,7 @@ def _rank_entry_candidates(symbols: list[CodeSymbol], hits: list[CodeHit]) -> li
     for hit in hits:
         hit_counts[hit.path] = hit_counts.get(hit.path, 0) + 1
 
-    def score(symbol: CodeSymbol) -> tuple[int, int, str]:
+    def score(symbol: CodeSymbol) -> tuple[int, int, int, str]:
         name = symbol.name.lower()
         s = hit_counts.get(symbol.path, 0)
         if any(token in name for token in ["model", "vla", "policy", "agent", "head"]):
@@ -256,7 +298,7 @@ def _rank_entry_candidates(symbols: list[CodeSymbol], hits: list[CodeHit]) -> li
             s += 5
         if "readme" in symbol.path.lower():
             s += 2
-        return (s, -symbol.line, symbol.path)
+        return (s, -_path_depth(symbol.path), -symbol.line, symbol.path)
 
     return sorted(symbols, key=score, reverse=True)
 
@@ -268,3 +310,48 @@ def _symbols_by_names(symbols: list[CodeSymbol], names: set[str]) -> list[CodeSy
         if lowered in names or any(name in lowered for name in names):
             matched.append(symbol)
     return matched
+
+
+def _build_file_groups(rel_paths: list[str]) -> dict[str, list[str]]:
+    grouped: dict[str, list[str]] = {name: [] for name in FILE_GROUP_ORDER}
+    for rel in rel_paths:
+        matched = _matching_groups(rel)
+        for group in matched:
+            grouped[group].append(rel)
+
+    return {
+        group: _rank_group_paths(group, paths)[:GROUP_LIMIT]
+        for group, paths in grouped.items()
+    }
+
+
+def _matching_groups(rel_path: str) -> list[str]:
+    lowered = rel_path.lower()
+    matches: list[str] = []
+    for group, patterns in GROUP_PATTERNS.items():
+        if any(pattern in lowered for pattern in patterns):
+            matches.append(group)
+    return matches
+
+
+def _rank_group_paths(group: str, paths: list[str]) -> list[str]:
+    unique = sorted(set(paths))
+
+    def score(path: str) -> tuple[int, int, int, str]:
+        lowered = path.lower()
+        strong_hits = sum(1 for pattern in GROUP_PATTERNS[group] if pattern in lowered)
+        if "tests/" in lowered or lowered.startswith("tests/"):
+            strong_hits -= 2
+        if group == "docs" and lowered != "readme.md" and lowered.endswith(".md"):
+            strong_hits -= 1
+        return (strong_hits, -_path_depth(path), -len(path), path)
+
+    return sorted(unique, key=score, reverse=True)
+
+
+def _candidate_list(file_groups: dict[str, list[str]], group: str, limit: int = 8) -> list[str]:
+    return list(file_groups.get(group, [])[:limit])
+
+
+def _path_depth(path: str) -> int:
+    return len(Path(path).parts)

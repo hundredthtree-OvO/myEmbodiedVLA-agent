@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .models import CodeHit, CodeSymbol, EvidencePack
+from .models import CodeHit, CodeSymbol, EvidencePack, RepoInfo
 from .pdf import focus_excerpt
 from .taste_memory import read_taste_memory
 
@@ -17,10 +17,10 @@ def build_study_prompt(evidence: EvidencePack, max_chars: int) -> str:
 
 硬性要求：
 - 聚焦用户指定的 focus，不要泛泛总结整篇论文。
-- 论文概念解释和代码证据要分开讲。
+- 论文概念解释和代码证据要分开写。
 - 代码位置只能来自 Evidence Pack，不要编造文件、类名或行号。
 - 有直接论文/代码证据时标 `CONFIRMED`，由上下文推断时标 `INFERRED`。
-- 如果代码没有直接命名为 focus 中的术语，要解释论文概念如何折叠进实现。
+- 如果当前 evidence 不足，必须明确写出 `Missing Evidence` 或“需要人工确认”。
 - 必须包含章节：任务与输入、论文核心概念解释、仓库入口与主干候选、论文模块 -> 代码模块映射、训练/推理主路径、关注点专项、建议阅读顺序、未确认点。
 
 用户任务：
@@ -46,7 +46,7 @@ Paper focus excerpt:
 {paper_excerpt}
 
 Repository evidence:
-{_repo_block(evidence)}
+{_repo_block(evidence.repo)}
 """
     return body[:max_chars]
 
@@ -80,16 +80,30 @@ def _zotero_block(evidence: EvidencePack) -> str:
     )
 
 
-def _repo_block(evidence: EvidencePack) -> str:
-    repo = evidence.repo
-    lines = [f"Scanned files: {repo.files_scanned}", "Entry candidates:"]
+def _repo_block(repo: RepoInfo) -> str:
+    lines = [f"Scanned files: {repo.files_scanned}"]
+    grouped = {name: paths for name, paths in repo.file_groups.items() if paths}
+    if grouped:
+        lines.append("File groups:")
+        for group_name, paths in grouped.items():
+            preview = ", ".join(paths[:5])
+            lines.append(f"- {group_name}: {preview}")
+
+    _append_path_list(lines, "Model candidates", repo.model_candidates)
+    _append_path_list(lines, "Train candidates", repo.train_candidates)
+    _append_path_list(lines, "Inference candidates", repo.inference_candidates)
+    _append_path_list(lines, "Config candidates", repo.config_candidates)
+    _append_path_list(lines, "Data candidates", repo.data_candidates)
+
+    lines.append("Entry candidates:")
     lines.extend(f"- {_symbol(symbol)}" for symbol in repo.entry_candidates[:12])
-    lines.append("Training candidates:")
+    lines.append("Training symbol candidates:")
     lines.extend(f"- {_symbol(symbol)}" for symbol in repo.train_path[:12])
-    lines.append("Inference candidates:")
+    lines.append("Inference symbol candidates:")
     lines.extend(f"- {_symbol(symbol)}" for symbol in repo.infer_path[:12])
     lines.append("Focus/default hits:")
     lines.extend(f"- {_hit(hit)}" for hit in repo.hits[:120])
+
     diagnostics = _repo_diagnostics(repo)
     if diagnostics:
         lines.append("Repository diagnostics:")
@@ -97,10 +111,27 @@ def _repo_block(evidence: EvidencePack) -> str:
     return "\n".join(lines)
 
 
-def _repo_diagnostics(repo) -> list[str]:
+def _append_path_list(lines: list[str], title: str, values: list[str]) -> None:
+    if not values:
+        return
+    lines.append(f"{title}:")
+    lines.extend(f"- {value}" for value in values[:8])
+
+
+def _repo_diagnostics(repo: RepoInfo) -> list[str]:
     diagnostics: list[str] = []
     if not repo.entry_candidates:
         diagnostics.append("No clear model/policy entrypoint was found in the repository evidence.")
+    if not repo.model_candidates:
+        diagnostics.append("No obvious model/policy files were found in the current scan.")
+    if not repo.train_candidates:
+        diagnostics.append("No obvious train scripts were found in the current scan.")
+    if not repo.inference_candidates:
+        diagnostics.append("No obvious inference scripts were found in the current scan.")
+    if not repo.config_candidates:
+        diagnostics.append("No obvious config files were found in the current scan.")
+    if not repo.data_candidates:
+        diagnostics.append("No obvious data/dataset files were found in the current scan.")
     if not repo.train_path:
         diagnostics.append("Training path is not directly confirmed by symbol names.")
     if not repo.infer_path:
@@ -108,7 +139,7 @@ def _repo_diagnostics(repo) -> list[str]:
     if len(repo.hits) < 5:
         diagnostics.append(f"Only {len(repo.hits)} repository hits were found; concept-to-code alignment confidence is low.")
     if not repo.config_hits:
-        diagnostics.append("No obvious config evidence was found in the current scan.")
+        diagnostics.append("No config-related keyword hits were found in the current scan.")
     return diagnostics
 
 

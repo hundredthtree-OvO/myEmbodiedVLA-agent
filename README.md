@@ -258,6 +258,28 @@ uv run python -m unittest discover -s tests
 - feedback 到 profile 的显式偏好更新
 - 离线 paper/repo 分析到 Markdown 输出的完整链路
 
+可选真实仓库手工验收：
+
+```powershell
+uv run python study_agent_cli.py github test --repo-url https://github.com/Win-commit/WAV
+```
+
+```powershell
+uv run python study_agent_cli.py analyze --zotero-title "World-Value-Action Model" --repo https://github.com/Win-commit/WAV --focus "Latent Planning and Iterative Inference" --out notes\wav-evidence-check.md --engine offline
+```
+
+这组手工验收主要用于验证：
+
+- 真实远程仓库是否能成功浅克隆
+- 远程 clone 后是否能完成 repo 扫描和 Markdown 输出
+- 后续 P1 的 repo evidence pack 增强是否真的体现在真实仓库分析结果里
+
+说明：
+
+- 自动测试继续使用 fake repo fixture，保证稳定和可重复
+- 真实 GitHub 仓库验收不写死进单元测试套件，避免 CI / 离线环境不稳定
+- 当前建议先用 `--engine offline` 验 evidence pack，不把 Codex 输出质量和 repo 扫描质量混在同一次验收里
+
 ## TODO
 
 当前 roadmap 采用 **Evidence First**：先把“论文细节 ↔ 代码实现”的对齐能力做强，再把“越用越聪明”的学习闭环接上。PowerShell/TUI 与 Zotero 继续保留，但降级为支撑能力，而不是主线。
@@ -270,11 +292,16 @@ uv run python -m unittest discover -s tests
 
 ### P1：Evidence Core
 
+当前已完成的第一步：
+
+- [x] Repo evidence pack 结构化分类：已经支持 `File groups`、`Model candidates`、`Train candidates`、`Inference candidates`、`Config candidates`、`Data candidates`，并已用真实仓库 `https://github.com/Win-commit/WAV` 完成离线验收。
+- [x] 结构化 repo diagnostics 已接入 prompt 和离线输出：低证据或缺失 train/config/model/data 线索时，会更具体地输出 `Missing Evidence`。
+
 - [ ] 建立统一的 `Concept2Code Tracer`：围绕“论文中的一个研究概念 / 创新点 / 架构部件，在代码中如何被实现、连接、训练、调用”来分析，而不是围绕单一关键词或单一 trace 任务。
 - [ ] 引入 `Concept Card` 作为统一对象：把 focus 抽象为 `concept_name + concept_type + paper_role + possible_code_forms + trace_targets + key_questions`。
 - [ ] 增加 concept type 分类：至少先覆盖 `objective`、`encoder`、`fusion_module`、`action_head`、`world_model`、`tokenization/control`，再根据类型选择不同搜索策略。
 - [ ] 增加最小 `concept alias registry`：先服务 repo 搜索策略和 evidence pack 构建；完整的长期 concept library 继续放在 P3。
-- [ ] 把 repo evidence pack 从简单关键词扫描升级到结构化分类：文件类型分组、入口文件、训练脚本、推理脚本、config/model/loss/data 候选。
+- [x] 把 repo evidence pack 从简单关键词扫描升级到结构化分类：文件类型分组、入口文件、训练脚本、推理脚本、config/model/loss/data 候选。
 - [ ] 增加 AST 级索引：class/function/import/call 的粗粒度索引，支撑比关键词更稳的候选定位。
 - [ ] 增加 dependency/config 索引：识别 `transformers` / `timm` / Hugging Face 模型名、yaml/json/toml/Hydra/argparse 配置来源。
 - [ ] 增加重点文件二次读取：先粗扫描，再让 Codex 选择 3-8 个关键文件，最后读取完整上下文后生成最终分析。
@@ -282,6 +309,10 @@ uv run python -m unittest discover -s tests
 - [ ] 第一批 trace 模板作为 `Concept2Code Tracer` 的实例视角落地，而不是顶层主抽象：先支持 `objective/loss trace`、`module/fusion trace`、`architecture diff`。
 - [ ] 输出目标从“找到相关文件”提升到“能解释一个 paper concept 在代码中的实现位置、连接关系、训练/推理参与方式，以及与主流 VLA 的差异”。
 - [ ] 增加 `Evidence Quality Check`：检查每个结论是否同时区分了 paper/code evidence、是否有代码路径支撑、是否明确输出 Missing Evidence。
+
+P1 下一步建议优先做：
+
+- [ ] 重点文件二次读取：先用当前 repo 结构地图和 candidates 缩小范围，再读取 3-8 个关键文件的完整上下文，为下一步 Concept2Code Tracer 做输入准备。
 
 ### P2：Learning Loop
 

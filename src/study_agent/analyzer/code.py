@@ -41,6 +41,16 @@ def build_open_questions(repo: RepoInfo, code_map: list[CodeMapItem], plan: Anal
     questions: list[str] = []
     if not repo.entry_candidates:
         questions.append("[Missing Evidence] No clear model/policy entrypoint was found; inspect repository layout manually.")
+    if not repo.model_candidates:
+        questions.append("[Missing Evidence] No obvious model/policy files were found in the current scan.")
+    if not repo.train_candidates:
+        questions.append("[Missing Evidence] No obvious train scripts were found in the current scan.")
+    if not repo.inference_candidates:
+        questions.append("[Missing Evidence] No obvious inference scripts were found in the current scan.")
+    if not repo.config_candidates:
+        questions.append("[Missing Evidence] No obvious config files were found in the current scan.")
+    if not repo.data_candidates:
+        questions.append("[Missing Evidence] No obvious data/dataset files were found in the current scan.")
     if not repo.train_path:
         questions.append("[Missing Evidence] Training path is not confirmed by symbol names; search scripts/configs next.")
     if not repo.infer_path:

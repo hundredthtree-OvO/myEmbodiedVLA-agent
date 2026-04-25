@@ -77,7 +77,13 @@ class RepoInfo:
     source: str
     path: Path
     files_scanned: int
+    file_groups: dict[str, list[str]]
     entry_candidates: list[CodeSymbol]
+    train_candidates: list[str]
+    inference_candidates: list[str]
+    config_candidates: list[str]
+    model_candidates: list[str]
+    data_candidates: list[str]
     symbols: list[CodeSymbol]
     hits: list[CodeHit]
     config_hits: list[CodeHit]

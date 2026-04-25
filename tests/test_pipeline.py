@@ -57,6 +57,8 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("Demo VLA 架构学习笔记", markdown)
         self.assertIn("kv_cache", markdown)
         self.assertIn("model.py", markdown)
+        self.assertIn("File groups", markdown)
+        self.assertIn("Model candidates", markdown)
 
     def test_offline_pipeline_surfaces_missing_evidence_diagnostics(self) -> None:
         tmp_path = Path.cwd() / ".tmp" / "test_pipeline_missing_evidence"
