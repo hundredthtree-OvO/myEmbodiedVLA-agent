@@ -249,13 +249,16 @@ uv run python -m unittest discover -s tests
 
 ### P1：Evidence Core
 
+- [ ] 建立统一的 `Concept2Code Tracer`：围绕“论文中的一个研究概念 / 创新点 / 架构部件，在代码中如何被实现、连接、训练、调用”来分析，而不是围绕单一关键词或单一 trace 任务。
+- [ ] 引入 `Concept Card` 作为统一对象：把 focus 抽象为 `concept_name + concept_type + paper_role + possible_code_forms + trace_targets + key_questions`。
+- [ ] 增加 concept type 分类：至少先覆盖 `objective`、`encoder`、`fusion_module`、`action_head`、`world_model`、`tokenization/control`，再根据类型选择不同搜索策略。
 - [ ] 把 repo evidence pack 从简单关键词扫描升级到结构化分类：文件类型分组、入口文件、训练脚本、推理脚本、config/model/loss/data 候选。
 - [ ] 增加 AST 级索引：class/function/import/call 的粗粒度索引，支撑比关键词更稳的候选定位。
 - [ ] 增加 dependency/config 索引：识别 `transformers` / `timm` / Hugging Face 模型名、yaml/json/toml/Hydra/argparse 配置来源。
 - [ ] 增加重点文件二次读取：先粗扫描，再让 Codex 选择 3-8 个关键文件，最后读取完整上下文后生成最终分析。
 - [ ] 改进 PDF / paper focus 抽取：更稳定地定位用户指定 section，并优先抽取与 focus 强相关段落。
-- [ ] 新增第一批研究模式：`loss-trace`、`module-trace`、`architecture-diff`。
-- [ ] 输出目标从“找到相关文件”提升到“能解释 loss 实现、模块折叠位置和与主流 VLA 的差异”。
+- [ ] 第一批 trace 模板作为 `Concept2Code Tracer` 的实例视角落地，而不是顶层主抽象：先支持 `objective/loss trace`、`module/fusion trace`、`architecture diff`。
+- [ ] 输出目标从“找到相关文件”提升到“能解释一个 paper concept 在代码中的实现位置、连接关系、训练/推理参与方式，以及与主流 VLA 的差异”。
 
 ### P2：Learning Loop
 
