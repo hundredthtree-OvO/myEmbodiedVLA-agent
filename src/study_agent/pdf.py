@@ -8,6 +8,9 @@ import subprocess
 from pathlib import Path
 
 
+PDF_PYTHON_ENV_VARS = ("STUDY_AGENT_PDF_PYTHON", "STUDY_AGENT_BUNDLED_PYTHON")
+
+
 def extract_pdf_text(path: Path, timeout_seconds: int = 120) -> str:
     if not path.exists():
         raise FileNotFoundError(f"PDF does not exist: {path}")
@@ -42,12 +45,26 @@ def _run_local_pypdf(path: Path) -> str:
 
 
 def _bundled_python() -> Path | None:
+    env_candidate = _bundled_python_from_env()
     candidates = [
-        Path("C:/Users/86157/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe"),
+        candidate
+        for candidate in (
+            env_candidate,
+            Path.home() / ".cache" / "codex-runtimes" / "codex-primary-runtime" / "dependencies" / "python" / "python.exe",
+        )
+        if candidate is not None
     ]
     for candidate in candidates:
         if candidate.exists() and candidate != Path(sys.executable):
             return candidate
+    return None
+
+
+def _bundled_python_from_env() -> Path | None:
+    for name in PDF_PYTHON_ENV_VARS:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return Path(value)
     return None
 
 

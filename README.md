@@ -33,6 +33,18 @@ $env:PYTHONPATH='src'
 
 这样 `uv` 缓存和运行时导入都会留在工作区内。
 
+如果本地 Codex 登录凭据不在默认位置，建议设置 Codex auth 路径环境变量：
+
+```powershell
+$env:STUDY_AGENT_CODEX_AUTH_PATH="$HOME\.codex\auth.json"
+```
+
+安装当前工具依赖：
+
+```powershell
+uv sync
+```
+
 ## 快速开始
 
 启动 PowerShell 向导页：
@@ -158,7 +170,35 @@ uv run python study_agent_cli.py cleanup --target all
 默认使用本机 Codex 登录凭据：
 
 ```text
-C:\Users\name\.codex\auth.json
+%USERPROFILE%\.codex\auth.json
+```
+
+也可以用环境变量覆盖：
+
+```powershell
+$env:STUDY_AGENT_CODEX_AUTH_PATH="D:\portable\.codex\auth.json"
+```
+
+优先级为：
+
+```text
+STUDY_AGENT_CODEX_AUTH_PATH
+-> CODEX_AUTH_PATH
+-> CODEX_HOME/auth.json
+-> .study-agent/config.json 中的 auth_path
+-> %USERPROFILE%\.codex\auth.json
+```
+
+Zotero 数据目录默认使用：
+
+```text
+%USERPROFILE%\Zotero
+```
+
+也可以通过环境变量覆盖：
+
+```powershell
+$env:STUDY_AGENT_ZOTERO_DATA_DIR="D:\data\Zotero"
 ```
 
 默认配置文件：

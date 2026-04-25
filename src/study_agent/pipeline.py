@@ -8,7 +8,7 @@ from .analyzer.paper import analyze_paper
 from .cleanup import cleanup_after_analyze
 from .codex_client import CodexUnavailable, assert_codex_ready, run_codex
 from .composer import compose_markdown
-from .config import load_config, with_model
+from .config import default_zotero_data_dir, load_config, with_model
 from .ingest import RepositoryPrepareError, ingest_paper, ingest_repo
 from .models import EvidencePack, StudyArtifact, StudyRequest
 from .planner import build_plan
@@ -44,7 +44,7 @@ def execute_analysis(
     if request.zotero_title:
         progress.stage("Querying Zotero", request.zotero_title)
         try:
-            zotero_item = find_zotero_item(request.zotero_title, config.zotero_data_dir or Path("E:/zoteroData"))
+            zotero_item = find_zotero_item(request.zotero_title, config.zotero_data_dir or default_zotero_data_dir())
         except ZoteroLookupError as exc:
             raise RuntimeError(f"Zotero lookup failed: {exc}") from exc
         if not paper_source and zotero_item.pdf_path:
