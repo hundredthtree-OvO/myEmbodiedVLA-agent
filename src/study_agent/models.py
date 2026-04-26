@@ -124,6 +124,9 @@ class AgentConfig:
     max_evidence_chars: int = 60000
     max_history_examples: int = 3
     zotero_data_dir: Path | None = None
+    second_pass_enabled: bool = True
+    second_pass_round1_max_files: int = 8
+    second_pass_round2_max_files: int = 4
 
 
 @dataclass(frozen=True)
@@ -148,6 +151,57 @@ class CodeMapItem:
     code_refs: list[CodeSymbol | CodeHit]
     explanation: str
     evidence: str
+
+
+@dataclass(frozen=True)
+class SecondPassFileEvidence:
+    path: str
+    selected_reason: str
+    excerpt: str
+    top_symbols: list[str]
+    local_evidence: list[str]
+
+
+@dataclass(frozen=True)
+class MissingFileSuggestion:
+    path: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class UncertainLink:
+    concept: str
+    reason: str
+    candidate_files: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Concept2CodeLink:
+    concept: str
+    status: str
+    files: list[str]
+    symbols: list[str]
+    evidence_span: str
+    confidence: str
+    reason: str
+    round: int
+
+
+@dataclass(frozen=True)
+class SecondPassRoundResult:
+    round_id: int
+    summary: str
+    files: list[SecondPassFileEvidence]
+    concept_links: list[Concept2CodeLink]
+    uncertain_links: list[UncertainLink]
+    missing_files: list[MissingFileSuggestion]
+
+
+@dataclass(frozen=True)
+class SecondPassEvidence:
+    round_1: SecondPassRoundResult
+    round_2: SecondPassRoundResult | None
+    final_concept2code_links: list[Concept2CodeLink]
 
 
 @dataclass(frozen=True)

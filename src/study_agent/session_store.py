@@ -5,7 +5,7 @@ from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
-from .models import EvidencePack
+from .models import EvidencePack, SecondPassEvidence
 
 
 SESSION_ROOT = Path(".study-agent") / "sessions"
@@ -30,7 +30,16 @@ def latest_session_dir(root: Path = SESSION_ROOT) -> Path | None:
     return candidates[0] if candidates else None
 
 
-def save_session(session_dir: Path, evidence: EvidencePack, prompt: str, output: str, taste_delta: str = "") -> None:
+def save_session(
+    session_dir: Path,
+    evidence: EvidencePack,
+    prompt: str,
+    output: str,
+    taste_delta: str = "",
+    second_pass: SecondPassEvidence | None = None,
+    second_pass_round1_raw: str = "",
+    second_pass_round2_raw: str = "",
+) -> None:
     (session_dir / "request.json").write_text(
         json.dumps(_safe_asdict(evidence.request), ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
@@ -39,11 +48,39 @@ def save_session(session_dir: Path, evidence: EvidencePack, prompt: str, output:
     (session_dir / "output.md").write_text(output, encoding="utf-8")
     if taste_delta:
         (session_dir / "taste_delta.md").write_text(taste_delta, encoding="utf-8")
+    if second_pass:
+        (session_dir / "second-pass-round-1.json").write_text(
+            json.dumps(_safe_asdict(second_pass.round_1), ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        if second_pass_round1_raw:
+            (session_dir / "second-pass-round-1.md").write_text(second_pass_round1_raw, encoding="utf-8")
+        if second_pass.round_2:
+            (session_dir / "second-pass-round-2.json").write_text(
+                json.dumps(_safe_asdict(second_pass.round_2), ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            if second_pass_round2_raw:
+                (session_dir / "second-pass-round-2.md").write_text(second_pass_round2_raw, encoding="utf-8")
+        (session_dir / "concept2code.json").write_text(
+            json.dumps(_safe_asdict(second_pass.final_concept2code_links), ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
 
 def _safe_asdict(obj):
-    data = asdict(obj)
+    if isinstance(obj, Path):
+        return str(obj)
+    if isinstance(obj, list):
+        return [_safe_asdict(item) for item in obj]
+    if isinstance(obj, tuple):
+        return [_safe_asdict(item) for item in obj]
+    if isinstance(obj, dict):
+        return {key: _safe_asdict(value) for key, value in obj.items()}
+    try:
+        data = asdict(obj)
+    except TypeError:
+        return obj
     for key, value in list(data.items()):
-        if isinstance(value, Path):
-            data[key] = str(value)
+        data[key] = _safe_asdict(value)
     return data

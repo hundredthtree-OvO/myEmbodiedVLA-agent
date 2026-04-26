@@ -138,6 +138,9 @@ def run_config(args: argparse.Namespace) -> int:
         print(f"max_evidence_chars: {config.max_evidence_chars}")
         print(f"max_history_examples: {config.max_history_examples}")
         print(f"zotero_data_dir: {config.zotero_data_dir}")
+        print(f"second_pass_enabled: {config.second_pass_enabled}")
+        print(f"second_pass_round1_max_files: {config.second_pass_round1_max_files}")
+        print(f"second_pass_round2_max_files: {config.second_pass_round2_max_files}")
         return 0
     if args.config_command == "set-model":
         updated = with_model(config, validate_model_name(args.model))

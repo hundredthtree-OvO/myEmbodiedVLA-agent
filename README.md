@@ -148,6 +148,12 @@ uv run python study_agent_cli.py config show
 uv run python study_agent_cli.py config set-model gpt-5.4
 ```
 
+`config show` 当前也会显示 second-pass 相关开关：
+
+- `second_pass_enabled`
+- `second_pass_round1_max_files`
+- `second_pass_round2_max_files`
+
 ### profile
 
 ```powershell
@@ -261,13 +267,24 @@ uv run python study_agent_cli.py analyze --zotero-title "World-Value-Action Mode
 
 - [x] Repo evidence pack 结构化分类
 - [x] Role-aware ranking MVP：已完成 `entry / skeleton / component` 分层与轻量 AST rerank
-- [ ] 重点文件二次读取（important file second-pass reading）
+- [x] 重点文件二次读取（important file second-pass reading）：已实现固定两轮 second-pass
 - [x] Lightweight Python AST / config 索引（仅用于 architecture sorting），full dependency graph 暂未引入
 
 ### P2：Learning Loop
 
 - [ ] session reflection、skill memory、retrieval
 - [ ] 更结构化的 taste/profile patch 与 few-shot taste 示例
+
+当前 `codex` 分析模式下的主链路已经变成：
+
+```text
+first-pass ranking
+-> second-pass round 1
+-> 本地校验 missing files / uncertain links
+-> second-pass round 2
+-> concept2code.json / session artifacts
+-> final markdown
+```
 
 ### P3：Concept Library 与研究输出升级
 

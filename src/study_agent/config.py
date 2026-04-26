@@ -26,6 +26,9 @@ def load_config(path: Path = CONFIG_PATH) -> AgentConfig:
             api_url=DEFAULT_API_URL,
             model=DEFAULT_MODEL,
             zotero_data_dir=resolve_zotero_data_dir(),
+            second_pass_enabled=True,
+            second_pass_round1_max_files=8,
+            second_pass_round2_max_files=4,
         )
         save_config(config, path)
         return config
@@ -39,6 +42,9 @@ def load_config(path: Path = CONFIG_PATH) -> AgentConfig:
         max_evidence_chars=int(data.get("max_evidence_chars", 60000)),
         max_history_examples=int(data.get("max_history_examples", 3)),
         zotero_data_dir=resolve_zotero_data_dir(data.get("zotero_data_dir")),
+        second_pass_enabled=bool(data.get("second_pass_enabled", True)),
+        second_pass_round1_max_files=int(data.get("second_pass_round1_max_files", 8)),
+        second_pass_round2_max_files=int(data.get("second_pass_round2_max_files", 4)),
     )
 
 

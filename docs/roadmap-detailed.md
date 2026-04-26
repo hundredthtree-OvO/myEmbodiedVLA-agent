@@ -1,7 +1,6 @@
 # 详细路线图
 
-这份文档记录项目的详细路线图、MVP 范围、实现反馈与阶段判断。  
-[README.md](/E:/my-embodied/README.md) 只保留高层方向，这里负责沉淀“当前做到哪、为什么这么做、接下来做什么”。
+这份文档记录项目当前阶段、为什么这么做、已经验证了什么，以及接下来的执行主线。
 
 ## 产品定位
 
@@ -9,47 +8,103 @@
 
 - 以 Codex 为核心的论文-代码对齐研究副驾
 - 擅长基于 `paper + repo + focus` 生成结构化学习笔记
-- 当前仍然不是完整的“研究学习代理”
+- 当前仍然不是完整的“研究学习代理”，而是以证据组织和代码理解为中心的分析器
 
-当前主线目标是：
-
-1. 先把 evidence 质量做强
-2. 再补轻量 learning loop
-
-核心方向可以概括为：
+当前主线目标可以概括为：
 
 ```text
-论文概念 -> 代码实现 -> 可复用的研究记忆
+论文概念 -> 代码实现 -> 可复用的结构化研究证据
 ```
 
-## 当前状态
+## 当前状态总览
 
-已完成：
+已经完成：
 
 - P0：基础加固
-- P1 第一步：结构化 repo evidence pack
-- `core_model` / `deployment_policy` 分离
-- architecture 的 role-aware ranking
-- architecture 的 `entry / skeleton / component` 分层
-- `entry / skeleton / component` 的轻量 AST rerank
+- P1：第一遍 repo evidence 构建与角色排序
+- `entry / skeleton / component` 轻量 AST 重排
+- P2 前置：两轮 second-pass reading 与结构化 `Concept2Code` 证据落盘
 
-当前仍然存在的缺口：
+仍然没有做的重机制：
 
-- 同层内部排序仍然是“轻量规则 + 轻量 AST”驱动，不是完整图分析
-- 某些仓库没有单一、明显的 architecture assembly file
-- second-pass reading 还没有实现
+- full AST graph
+- Tree-sitter 多语言解析
+- 通用 PageRank / centrality
+- 长期 memory / retrieval
 
-## P1 MVP：Role-Aware Ranking
+当前阶段判断：
+
+1. 排序层已经从“可用原型”进入“可持续复用”
+2. 主线已经从“继续堆排序规则”切换到“second-pass 深读 + 结构化证据”
+3. 下一步重点不是更重的排序算法，而是让 `Concept2Code tracing` 更稳、更可保存
+
+---
+
+## P0：基础加固
 
 ### 目标
 
-让 `architecture / model / module` focus 下的候选顺序，更接近人类第一次读 repo 时的顺序，而不是单纯按路径关键词或混合中心性排序。
+先把工具跑通、错误信息收清楚、环境依赖去硬编码。
 
-### MVP 范围
+### 已完成内容
 
-第一轮 MVP 的重点是先建立角色分层，不追求完整程序分析。
+- 远程 repo clone 的失败提示与 fallback
+- PDF 解析失败时的错误分层
+- Codex auth 路径改为环境变量 / 配置可覆盖
+- Zotero 默认路径改为通用默认值，并支持环境变量覆盖
+- `pyproject.toml` 补上 `pypdf`，README 明确区分 Python 依赖与系统依赖
 
-需要保留并输出的核心角色字段：
+### 当前结论
+
+这一步已经足够支撑开源使用和跨环境运行，不再是当前主线阻塞项。
+
+---
+
+## P1：第一遍 Evidence Core
+
+### 目标
+
+让仓库分析结果不再只是“命中几个关键词”，而是形成可用于阅读路径的第一遍 repo evidence。
+
+### 两层结构
+
+当前主链是：
+
+```text
+类型候选层 -> 角色构建层 -> AST 重排层 -> reading_path
+```
+
+#### 1. 类型候选层
+
+回答：
+
+```text
+这些文件大概属于什么类型？
+```
+
+当前保留的类型字段：
+
+- `train_candidates`
+- `inference_candidates`
+- `config_candidates`
+- `model_candidates`
+- `core_model_candidates`
+- `deployment_policy_candidates`
+- `data_candidates`
+- `loss_candidates`
+- `env_candidates`
+- `docs_candidates`
+- `utils_candidates`
+
+#### 2. 角色构建层
+
+回答：
+
+```text
+在 architecture 理解链路里，这些文件分别扮演什么角色？
+```
+
+当前保留的角色字段：
 
 - `architecture_entry_candidates`
 - `architecture_skeleton_candidates`
@@ -57,441 +112,425 @@
 - `config_entry_candidates`
 - `deployment_entry_candidates`
 
-为了兼容旧逻辑和其它流程，仍保留这些字段：
+### reading_path 当前逻辑
 
-- `core_model_candidates`
-- `deployment_policy_candidates`
-- `train_candidates`
-- `inference_candidates`
-- `config_candidates`
-- `model_candidates`
-- `entry_candidates`
-
-### 设计原则
-
-1. 用多角色分类，而不是强行让每个文件只有一个角色。
-
-2. `architecture_entry` 依赖泛化信号，不依赖硬编码文件名。
-
-第一阶段可用的泛化信号包括：
-
-- core model 路径
-- assembly / skeleton 文件名信号，如 `arch`、`builder`、`model`、`vla`、`vlm`、`policy`
-- 排除明显噪音文件
-- 轻量 project stem match
-
-3. 第一轮不引入完整 import/call graph。
-
-4. `candidate_reasons` 先作为 debug 工具使用。
-
-目的不是“解释漂亮”，而是帮助判断规则到底是在泛化，还是在背答案。
-
-## 已实现内容
-
-实现日期：
-
-- 2026-04-25
-
-代码层面已经完成：
-
-- `RepoInfo` 新增并保留：
-  - `architecture_entry_candidates`
-  - `config_entry_candidates`
-  - `deployment_entry_candidates`
-  - `candidate_reasons`
-- `ingest_repo()` 已经可以构建 role-aware candidate lists
-- `prompt_builder` 已经输出新的 role-aware sections
-- `composer` 已经在离线 markdown 中输出新的 role-aware sections
-- `build_reading_path()` 已经按 focus-aware 方式处理：
-  - `architecture / model / module`
-  - `training / loss / objective`
-  - `inference / deploy / eval`
-  - `config / hyperparameter`
-
-调试支持：
-
-- top role-aware candidates 会在 prompt / offline 输出中带上 reason traces
-
-测试：
-
-- 已更新单元测试，覆盖新的 role-aware candidate lists
-- 已补 architecture-focus reading order 测试
-
-当时的自动化测试结果为：
+在 `architecture` focus 下，当前顺序为：
 
 ```text
-Ran 28 tests ... OK
+architecture_entry
+-> architecture_skeleton
+-> architecture_component
+-> config_entry
+-> deployment_entry
 ```
 
-## P1 后续细化：Architecture Chain Layering
+这比早期的混排更接近人第一次读 repo 的顺序。
 
-实现日期：
+---
 
-- 2026-04-25
+## P1.5 / P1.6：轻量 AST 重排
 
-增加这一轮 refinement 的原因：
+### 目标
 
-- 只有 `architecture_entry_candidates` 仍然太扁平
-- `attention / projector / patches / pipeline` 这类文件仍可能过早浮到前面
-- reading path 当时还缺一条明确的 `entry -> skeleton -> component` 架构链路
-
-### 已实现的细化内容
-
-- `RepoInfo` 进一步新增：
-  - `architecture_skeleton_candidates`
-  - `architecture_component_candidates`
-- `ingest_repo()` 现在会构建三层 architecture：
-  - `architecture_entry`
-  - `architecture_skeleton`
-  - `architecture_component`
-- architecture ranking 现在会过滤 architecture 层中的非代码文件
-- architecture ranking 会对 deployment-like wrapper 做惩罚
-- `build_reading_path()` 在 architecture focus 下优先按下面顺序组织：
+不要再按“被引用次数”粗暴排序，而是让 architecture 相关文件更像真实架构链路：
 
 ```text
-architecture_entry -> architecture_skeleton -> architecture_component -> config_entry -> deployment_entry
+train / eval / config
+-> policy / model / world-model entry
+-> backbone / head / bridge / decoder
+-> component
 ```
 
-- `prompt_builder` 与 `composer` 也同步输出了新的 architecture layers
-- 测试已经覆盖：
-  - entry / skeleton / component 分离
-  - architecture-focus reading path 顺序
+### 已完成内容
 
-### 这轮改动后的判断
+- 只对 Python 仓库建立轻量 AST 索引
+- 保持文件级，不做全仓调用图
+- 对 `entry / skeleton / component` 三层都接入 AST 定向重排
+- 加入 `script_like`、`helper_like`、`abstract_base`、`submodule_builder` 等 penalty
+- 加入 world-model / flat repo 的最小泛化支持
 
-这轮改动是值得保留的，因为它比按“原始引用次数”排序更符合第一次读代码的真实顺序。
+### 当前 AST 主要做什么
 
-主要改善：
+- 识别 concrete model / abstract base
+- 识别 skeleton_like / component_like / script_like
+- 识别 `forward / predict_action / encode / predict / rollout / get_cost`
+- 结合 train/eval/config 对 architecture 文件做反向加分
+- 为 second-pass 提供候选顺序和本地校验信号
 
-- `base_policy.py` 这类 deployment wrapper 更不容易泄漏到 architecture entry 顶部
-- `backbone / head` 这类骨架文件不再和 `attention / projector` 直接抢同一个位置
-- architecture 阅读顺序更接近：
-  - 顶层装配文件
-  - 结构骨架文件
-  - 局部组件文件
+### 当前 AST 明确不做什么
 
-故意保持“软规则”的地方：
+- full graph analysis
+- 通用 PageRank
+- Tree-sitter 多语言支持
+- 本地完整符号级推理器
 
-- 同一层内部排序仍然较轻
-- 比如 `attention` 和 `projector` 之间，不做硬编码偏好
-- 这样做是为了避免让 heuristic 过拟合到几个文件名模板
+### 当前结论
+
+轻量 AST 已经足够支撑第一遍排序，继续大幅加重排序系统的回报正在下降。
+
+---
 
 ## 真实仓库验证反馈
 
-验证方式：
-
-- 对真实仓库运行 `offline` 分析
-- 观察：
-  - `architecture_entry_candidates`
-  - `architecture_skeleton_candidates`
-  - `architecture_component_candidates`
-  - `config_entry_candidates`
-  - `deployment_entry_candidates`
-  - `reading_path`
-  - `candidate_reasons`
-  - `ast_candidate_reasons`
-
-### WAV
-
-结果：
-
-- core model 与 deployment wrapper 的分离依然稳定
-- deployment wrapper 没有抢走主模型阅读位置
-- role-aware 输出整体稳定
-
-做对的地方：
-
-- `deployment_entry_candidates` 能正确隔离 `openpi_client/runtime/*`
-- reading order 仍然优先留在 model 侧文件
-
-剩余问题：
-
-- 这个 repo 没有单一、明显的 architecture assembly file
-- 顶部 architecture 候选仍然偏 component-heavy，例如：
-  - `models/action_patches/patches.py`
-  - `models/pipeline/custom_pipeline.py`
-  - `models/value_patches/value_patches.py`
-
-判断：
-
-- 作为 MVP 已经够用
-- 但对“逻辑分散在 patches / pipeline / components 中”的仓库，仍然不够 assembly-aware
-
 ### VLA-Adapter
-
-结果：
-
-- 明显改善
-- `prismatic.py` 已经能进入 architecture entry 集合
-- `extern/hf/modeling_prismatic.py` 不再主导 entry 视角
-
-做对的地方：
-
-- `architecture_entry_candidates` 能稳定包含：
-  - `prismatic/models/vlas/openvla.py`
-  - `prismatic/models/vlms/prismatic.py`
-- `config_entry_candidates` 更偏向：
-  - `prismatic/conf/vla.py`
-  - `prismatic/conf/models.py`
-  - `prismatic/conf/datasets.py`
-
-剩余问题：
-
-- 早期版本里 `base_vlm.py` 仍会压在 `prismatic.py` 前面
-- 对 bridge attention 这类概念聚焦阅读来说，光靠第一遍排序仍不够
 
 当前判断：
 
-- 已经是有意义的改善
-- architecture-first 行为明显更接近目标方向
+- `openvla.py`、`prismatic.py` 能稳定进入 architecture entry 前列
+- `base_vlm.py` 被压低，不再压过 concrete wrapper
+- `action_heads.py` 与 `projectors.py` 至少能在 AST tags / debug 里稳定被识别
 
-### ACoT-VLA
+结论：
 
-结果：
-
-- 明显改善
-- 主 architecture 文件已经能被抬出来
-
-做对的地方：
-
-- `architecture_entry_candidates` 可以从：
-  - `src/openpi/models/acot_vla.py`
-  - `src/openpi/models/pi0.py`
-  - `src/openpi/models/vit.py`
-  - `src/openpi/models/siglip.py`
-  中稳定抬出主入口和骨架候选
-- `training/config.py` 不再占据主 architecture 槽位
-- reading order 更接近人工第一次读 repo 的顺序
-
-判断：
-
-- 是当前 MVP 的成功样例
+- 入口层已经明显优于早期版本
+- 对典型 VLA repo，当前排序已经接近可用
 
 ### ReconVLA
 
-结果：
+当前判断：
 
-- 有改善，但还不算完全收敛
-
-做对的地方：
-
-- `recon_arch.py` 与 `builder.py` 已经能被抬进 architecture entry 候选
-- training / config / deployment 文件不会再主导 architecture 槽位
-
-仍然缺的点：
-
-- `recon_qwen.py` 早期不够稳定
-- pixel / multimodal builders 一度仍强于更高层的 language-model assembly file
-
-判断：
-
-- 属于部分成功
-- 说明当前 MVP 已经比以前更能处理 assembly file
-- 但仍需要更强的 assembly-vs-component discrimination
-
-## P1.6 更新：补齐 Skeleton / Component 的轻量 AST 重排
-
-这一轮是在前一版 `architecture_entry` AST 重排的基础上，继续把轻量 Python AST 信号补到了：
-
-- `architecture_skeleton_candidates`
-- `architecture_component_candidates`
-
-实现策略保持不变，仍然是“保留现有 heuristic role prior，再在候选池内做 AST 定向重排”，没有引入 Tree-sitter，也没有做全仓 PageRank。
-
-### 本轮实现内容
-
-- `entry / skeleton / component` 现在都能接收 AST debug 信号
-- `ast_index.py` 中补充了：
-  - `skeleton_like`
-  - `component_like`
-  - `script_like`
-  - `bridge_like`
-  - 更通用的 `assembly_like`
-- `graph_rank.py` 中新增了：
-  - `rerank_architecture_skeleton_candidates(...)`
-  - `rerank_architecture_component_candidates(...)`
-- `ingest_repo()` 现在的 architecture 主链路变成：
-
-```text
-heuristic role candidates
--> AST rerank(entry)
--> AST rerank(skeleton)
--> AST rerank(component)
--> reading_path(entry -> skeleton -> component -> config -> deployment)
-```
-
-- 输出层也同步补齐了 skeleton / component 的 AST debug，方便直接看“为什么这个文件升了/降了”
-
-### 这一轮主要修了什么问题
-
-此前的典型问题是：
-
-- `ACoT-VLA` 中 skeleton 为空，说明很多“骨架文件名不显眼”的文件没有被捞出来
-- `component` 层会混入 `scripts/compute_norm_stats.py` 这类带有 `norm / stats` 词的脚本
-
-这轮针对性加入了两类改进：
-
-1. 对 `model.py / pi0.py / vit.py` 这类文件，不再只依赖路径关键词，而是结合：
-   - AST 中的类定义
-   - `sample_actions / forward / predict_action`
-   - assembly / bridge 行为
-   - 是否被 entry / config / policy 层引用
-
-2. 对脚本型噪音加入 penalty：
-   - `__main__`
-   - `argparse / tyro / draccus`
-   - `compute_* / *_stats / prepare_* / convert_*`
-   - `scripts/` 路径
-
-### 这轮验证后的仓库反馈
-
-#### VLA-Adapter
-
-- `openvla.py`、`prismatic.py` 作为 architecture entry 的位置仍然稳定
-- `base_vlm.py` 继续被压低，没有回退
-- `action_heads.py` 与 `projectors.py` 现在至少能在 AST tag/debug 里被更稳定地识别
+- `recon_arch.py`、`recon_qwen.py` 能进入更合理的位置
+- 子模块 `pixel_decoder/builder.py`、`multimodal_encoder/builder.py` 不再轻易压过顶层 assembly
 
 结论：
 
-- entry 层增强保持有效
-- 没有因为补 skeleton / component 而把前一轮的 entry 结果打回去
+- “top-level arch 高于 submodule builder”这条已经基本站住
+- 仍有 refinement 空间，但已经不妨碍进入 second-pass
 
-#### ReconVLA
+### ACoT-VLA
 
-- `recon_arch.py`、`recon_qwen.py` 继续保持在更靠前的位置
-- 子模块 `pixel_decoder/builder.py`、`multimodal_encoder/builder.py` 没有重新压回顶部
+P1.5 时的问题：
+
+- `architecture_entry` 可以用
+- 但 `architecture_skeleton_candidates` 基本为空
+- `component` 层会混入 `scripts/compute_norm_stats.py`
+
+P1.6 之后：
+
+- `skeleton` 不再为空
+- `pi0.py`、`vit.py`、`model.py` 一类文件能进入 skeleton 列表
+- `compute_norm_stats.py` 不再污染 component 前列
 
 结论：
 
-- “concrete model / top-level arch 高于 submodule builder” 这条改进保持住了
+- `skeleton / component` 的 AST 补强是有效的
+- ACoT-VLA 从“入口层可用、骨架层很弱”提升到了“整体基本可用”
 
-#### ACoT-VLA
+### le-wm
 
-这是这一轮最关键的泛化样例。
-
-前一版的问题是：
-
-- `architecture_entry` 还可以
-- 但 `architecture_skeleton_candidates` 几乎为空
-- `architecture_component_candidates` 会混入 `scripts/compute_norm_stats.py`
-
-这一轮之后，目标是让：
-
-- `model.py`
-- `pi0.py`
-- `vit.py`
-
-这些更像骨架 / 核心子结构的文件进入 skeleton 前列，同时把 `compute_norm_stats.py` 从 component 前列压下去。
-
-如果这些点在本地真实仓库回归中稳定成立，就说明：
-
-- 轻量 AST 已经足够支撑 P1 阶段的 architecture sorting
-- 下一阶段应转向 second-pass reading，而不是继续在排序层上堆复杂图算法
-
-#### le-wm
-
-`le-wm` 是后续额外加入的压力测试样例。它不是典型的 `models/policy/backbone/action_head` 目录式 VLA repo，而是更偏平铺目录的 world-model / JEPA 风格：
+这是额外加入的压力测试样例。它不是典型的 `models/policy/backbone/action_head` 风格，而是更偏 flat world-model / JEPA 风格：
 
 - `jepa.py`
 - `module.py`
 - `train.py`
 - `eval.py`
 
-这类仓库特别适合检验当前排序是不是仍然过度依赖 `models/`、`policy`、`vla / vlm` 这类命名空间。
+补强后的结果：
 
-补充验证后的结果是：
+- `jepa.py` 能被抬到 `architecture_entry`
+- `module.py` 能进入 `architecture_skeleton`
+- `train.py / eval.py` 自身不会误抬成 architecture entry 顶部
 
-- `jepa.py` 可以被抬入 `architecture_entry`
-- `module.py` 可以进入 `architecture_skeleton`
-- `train.py / eval.py` 自己不会被误抬进 architecture entry 顶部
+结论：
 
-这说明当前系统已经不只是“对典型 VLA 命名起作用”，而是开始具备：
+- 当前系统已经开始具备对 flat world-model repo 的最小泛化能力
+- mixed skeleton/component file 仍然会多层留痕，但已经不是进入 second-pass 的阻塞点
 
-- `train / eval -> imported / instantiated repo class -> architecture file` 的反向提名能力
-- 对 flat world-model repo 的最小泛化能力
+---
 
-但 `le-wm` 也暴露了一个还没完全收口的点：
+## P2 前置：两轮 second-pass reading
 
-- mixed file（例如同时包含 skeleton 与 component 定义的 `module.py`）目前仍然会在多层候选里留痕
+### 目标
 
-这个问题更像后续的小幅收口项，不再构成进入 second-pass reading 的阻塞点。
+从第一遍排序结果中挑 3-8 个关键文件，做更细的文件内证据抽取，强化 `Concept2Code tracing`。
 
-## 当前阶段判断
+### 当前实现状态
 
-到这一步，排序层的判断可以收敛为：
+已完成，日期：
 
-- `entry`：已经明显优于纯 heuristic
-- `skeleton`：已经开始真正补强，是是否进入 second-pass 的关键观察项
-- `component`：已经开始加入脚本 / 工具噪音抑制，不再只是“带 token 就抬”
+- 2026-04-26
 
-因此，当前 roadmap 的阶段判断是：
-
-1. `entry / skeleton / component` 的轻量 AST 补强已经完成
-2. `ACoT-VLA / ReconVLA / VLA-Adapter / le-wm` 四个样例没有出现严重回退
-3. 下一步主线应该直接进入：
+当前 `codex` 主流程已经变成：
 
 ```text
-important file second-pass reading
+first-pass ranking
+-> second-pass round 1
+-> 本地校验 missing files / uncertain links
+-> second-pass round 2
+-> concept2code.json / session artifacts
+-> final markdown
 ```
 
-而不是继续扩展为：
+### Round 1
+
+本地会先从第一遍排序结果中选出 3-8 个关键文件。
+
+选择来源优先级：
+
+- `reading_path`
+- `architecture_entry`
+- `architecture_skeleton`
+- 少量 `architecture_component`
+- 少量 train / config / inference 文件
+
+本地会对这些文件抽取：
+
+- `excerpt`
+- `top_symbols`
+- `local_evidence`
+- `selected_reason`
+
+然后交给 Codex 做第一轮深读。
+
+### Round 2
+
+Codex 可以在 Round 1 中返回：
+
+- `missing_files`
+- `uncertain_links`
+
+但这些建议不会直接进入补读，而是必须经过本地校验：
+
+- 文件必须真实存在于 repo
+- 文件必须与 Round 1 关键文件或已有链路存在可解释关联
+- helper / script 噪音会被过滤
+- 补读数量受 `round2_max_files` 限制
+
+因此 Round 2 的真实逻辑是：
+
+```text
+Codex 提建议 -> 本地筛选 -> 再补读
+```
+
+### 结构化证据落盘
+
+当前 session 不再只有：
+
+- `request.json`
+- `evidence.md`
+- `output.md`
+
+还会新增：
+
+- `second-pass-round-1.json`
+- `second-pass-round-1.md`
+- `second-pass-round-2.json`
+- `second-pass-round-2.md`
+- `concept2code.json`
+
+其中 `concept2code.json` 不是简单的 `concept -> file`，而是最小可复用证据单元，字段至少包括：
+
+- `concept`
+- `status`
+- `files`
+- `symbols`
+- `evidence_span`
+- `confidence`
+- `reason`
+- `round`
+
+这一步的意义是：
+
+- 后续接长期 memory 时，不需要再从最终 markdown 里反解析
+- 可以更清楚地区分 `CONFIRMED`、`INFERRED`、`MISSING`
+
+### 配置
+
+当前没有新增复杂 CLI，而是沿用现有配置体系，新增了：
+
+- `second_pass_enabled`
+- `second_pass_round1_max_files`
+- `second_pass_round2_max_files`
+
+默认值：
+
+```text
+enabled = true
+round1_max_files = 8
+round2_max_files = 4
+```
+
+### 测试状态
+
+本轮已补：
+
+- mock Codex 测试
+- Round 2 本地校验测试
+- `second_pass_enabled = false` 的回退测试
+- `concept2code.json` 落盘测试
+
+当前全量测试结果：
+
+```text
+48 passed
+```
+
+### 当前结论
+
+此前“second-pass 还没有实现”的判断已经过期。
+
+更新后的判断是：
+
+1. 第一遍排序层已经够用
+2. 两轮 second-pass 已经进入实现
+3. 当前主线应转向：
+   - 用真实仓库继续验证 Concept2Code tracing 的稳定性
+   - 再把结构化 evidence 接到长期 memory
+
+---
+
+## 现在不要优先做什么
+
+当前不建议优先投入：
 
 - full AST graph
 - Tree-sitter
 - 通用 PageRank
-- 更重的 CandidateInfo 系统
+- 更重的排序层重构
 
-补充说明：
+原因不是这些永远没用，而是当前收益顺序已经变了：
 
-- mixed skeleton/component file suppression 可以作为并行的小修正继续收口
-- 但它已经不再改变阶段判断
+```text
+排序层继续变重 < second-pass 质量提升 < 结构化证据复用
+```
 
-## 当前总体结论
-
-这个 P1 MVP 是值得保留的。
-
-它已经在多个真实仓库上带来可用的泛化改善：
-
-- 系统不再强依赖单一混合排序列表
-- architecture focus 更不容易被 config / deployment 噪音劫持
-- reading path 更接近人工第一次读 repo 的顺序
-
-但它依然只是一个第一版 MVP：
-
-- role-aware separation 已经比较强
-- assembly-vs-component prioritization 还可以继续收口
-- concept-aware second-pass reading 还没有进入实现阶段
-
-## 现在不要做什么
-
-暂时不要直接跳到：
-
-- full AST graph
-- 全项目 CandidateInfo 系统
-- 复杂 retrieval / learning loop
-- concept-aware second-pass reading 之外的更重机制
-
-当前单次分析质量已经足够进入第二阶段，继续在排序层叠复杂度，收益会开始变差。
+---
 
 ## 下一步
 
 明确的下一步是：
 
+1. 用真实仓库继续校验两轮 second-pass 的 `Concept2Code tracing`
+2. 检查 `concept2code.json` 是否足够稳定，可直接接到后续长期 memory
+3. 再考虑：
+   - session reflection
+   - skill memory
+   - retrieval
+
+如果这三步稳定，再进入更完整的 Learning Loop。
+
+---
+
+## ACoT-VLA second-pass 校验（2026-04-26）
+
+这一次专门用本地已 clone 的 `ACoT-VLA` 做了真实 second-pass 校验，目标是检查：
+
+- 两轮 second-pass 的 `Concept2Code tracing` 产出是否已经达到“可用”
+- `concept2code.json` 风格的结构化结论是否已经足够稳
+
+### 校验方式
+
+- 使用本地 paper 输入：
+  - `notes/ACoT-VLA-architecture-study.md`
+- 使用本地 repo：
+  - `.study-agent/repos/ACoT-VLA`
+- focus：
+  - `architecture`
+  - `policy`
+  - `bridge_attention`
+  - `reasoning_tokens`
+  - `action_head`
+- 实际触发了真实 Codex 的两轮 second-pass
+
+### 当前 second-pass 产出表现
+
+当前 merged 后的核心 concept links 大致是：
+
+- `policy` -> `CONFIRMED / high`
+- `architecture` -> `CONFIRMED / high`
+- `bridge_attention` -> `INFERRED / medium`
+- `reasoning_tokens` -> `INFERRED / medium`
+- `action_head` -> `INFERRED / medium`
+
+### 做得对的地方
+
+- `policy` 的确认是可靠的，能够正确落到 `src/openpi/policies/policy.py`
+- architecture 主骨架也基本找对了，能把：
+  - `acot_vla.py`
+  - `pi0.py`
+  - `pi0_fast.py`
+  - `model.py`
+  - `training/config.py`
+  这几类文件串起来
+- 对 `bridge_attention`、`reasoning_tokens` 保持 `INFERRED` 是合理的
+  - `bridge_attention` 更像在别的论文或仓库里会显式命名的概念，在 `ACoT-VLA` 里并不是一个直接落地成模块名的核心术语
+  - `reasoning_tokens` 在这个 repo 里也更像解释性概念，而不是代码中显式存在的 symbol
+- Round 2 的本地校验链路是有效的，能够把 `model.py`、`pi0_fast.py` 这类补读文件加进来，而不是完全盲信 Codex 点名
+
+### 还不满足要求的地方
+
+当前结果还不能算“完全满足要求”，但问题已经不应再归咎于 `bridge_attention / reasoning_tokens` 仍是 inferred。
+
+真正还不够好的地方主要是：
+
+1. `action_head` 仍然只有 `INFERRED`
+   - 但人工检查 `src/openpi/models/acot_vla.py` 可以看到：
+     - `self.coarse_action_out_proj`
+     - `self.action_out_proj`
+     - `sample_actions()`
+     - `compute_loss()`
+   - 这些其实已经提供了更直接的 action output / action projection 证据
+
+2. 与 action generation 更直接相关的代码链还没有被 second-pass 吃深
+   - 例如：
+     - `explicit_action_reasoner`
+     - `implicit_action_reasoner`
+     - `UnifiedAttentionModule`
+     - `action_reasoning_fusion`
+     - `action_out_proj`
+
+3. 当前补读会提出“继续读已经选中过但 excerpt 不完整的大文件”
+   - 这说明问题不完全是选错文件
+   - 更大的问题是：
+     - 对大文件只取了前部 excerpt
+     - 还没有做面向 concept 的二次定位与补片段
+
+### 根因判断
+
+这次 `ACoT-VLA` 校验暴露的主要短板不是第一遍排序，而是 second-pass 的局部证据切片策略。
+
+当前 second-pass 对大文件更像：
+
 ```text
-important file second-pass reading
+选中文件 -> 截前一段 excerpt -> 交给 Codex
 ```
 
-进入这一阶段后，要做的事情是：
+而 `ACoT-VLA` 这种大文件真正关键的 Concept2Code 证据往往在：
 
-- 从第一遍排序结果中挑出 3-8 个关键文件
-- 对这些文件做更细的证据抽取
-- 形成更强的 repo evidence，支撑 Concept2Code tracing
+- 类定义的后半段
+- `compute_loss()`
+- `sample_actions()`
+- `action_out_proj / reasoner / fusion` 等成员定义附近
 
-这一步之后，再考虑：
+所以系统现在更像“文件选对了，但喂给 Codex 的片段还不够对”。
 
-- second-pass reading of 3-8 key files
-- stronger repo evidence for Concept2Code tracing
-- 然后才是轻量 learning loop：
-  - session reflection
-  - skill memory
-  - retrieval
+### 当前阶段结论
+
+对 `ACoT-VLA` 来说，这版两轮 second-pass 的水平可以评价为：
+
+- `整体可用`
+- `能正确保留不确定性`
+- `对于跨仓库迁移来的概念没有乱确认`
+- `但对 repo 内本来可以直接确认的 action-generation 证据还吃得不够深`
+
+更具体地说：
+
+- 如果目标只是“先把关键文件与大致概念链路找出来”，这版已经够用
+- 如果目标是“把 action output / action reasoning path 做到代码级直接确认”，这版还不够
+
+### 下一步修正重点
+
+基于这次校验，当前最值得做的不是继续加重排序层，而是补 second-pass 的局部证据抽取：
+
+1. 对大文件从“前缀 excerpt”改成“symbol-aware / concept-aware 片段抽取”
+2. 如果 Round 1 / Round 2 都在反复点名同一个文件，允许补读该文件的后续片段，而不是只补新文件
+3. 优先围绕这些高价值 symbol 做片段抽取：
+   - `sample_actions`
+   - `compute_loss`
+   - `action_out_proj`
+   - `coarse_action_out_proj`
+   - `explicit_action_reasoner`
+   - `implicit_action_reasoner`
+   - `action_reasoning_fusion`
+
+这说明下一步的主线仍然是 second-pass 质量提升，而不是回到更重的排序系统重构。

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from .models import CodeHit, CodeSymbol, EvidencePack, RepoInfo
+from .models import CodeHit, CodeMapItem, CodeSymbol, EvidencePack, RepoInfo, SecondPassEvidence, SecondPassFileEvidence
 from .pdf import focus_excerpt
 from .taste_memory import read_taste_memory
 
 
-def build_study_prompt(evidence: EvidencePack, max_chars: int) -> str:
+def build_study_prompt(evidence: EvidencePack, max_chars: int, second_pass: SecondPassEvidence | None = None) -> str:
     request = evidence.request
     focus = ", ".join(request.focus) or "architecture"
     paper_excerpt = focus_excerpt(evidence.paper.text or evidence.paper.raw_excerpt, request.focus, max_chars=18000)
@@ -47,8 +47,97 @@ Paper focus excerpt:
 
 Repository evidence:
 {_repo_block(evidence.repo)}
+
+Second-pass evidence:
+{_second_pass_block(second_pass)}
 """
     return body[:max_chars]
+
+
+def build_second_pass_round1_prompt(
+    evidence: EvidencePack,
+    selected_files: list[SecondPassFileEvidence],
+    code_map: list[CodeMapItem],
+) -> str:
+    focus = ", ".join(evidence.request.focus) or "architecture"
+    return f"""
+You are doing round-1 deep reading for Concept2Code tracing.
+Work only from the local evidence below. Do not invent files or symbols.
+
+Output JSON only with this shape:
+{{
+  "summary": "short summary",
+  "concept_links": [
+    {{
+      "concept": "action head",
+      "status": "CONFIRMED|INFERRED|MISSING",
+      "files": ["relative/path.py"],
+      "symbols": ["ClassName.method"],
+      "evidence_span": "short evidence excerpt",
+      "confidence": "high|medium|low",
+      "reason": "why this link is valid",
+      "round": 1
+    }}
+  ],
+  "uncertain_links": [
+    {{
+      "concept": "bridge",
+      "reason": "what is uncertain",
+      "candidate_files": ["relative/path.py"]
+    }}
+  ],
+  "missing_files": [
+    {{
+      "path": "relative/path.py",
+      "reason": "why this file may resolve uncertainty"
+    }}
+  ]
+}}
+
+Rules:
+- Prefer CONFIRMED only when the local evidence directly supports the link.
+- Use INFERRED when the evidence is suggestive but incomplete.
+- Use MISSING only when a concept clearly matters but no file/symbol is currently grounded.
+- Keep evidence_span short.
+- Suggest at most 4 missing files.
+
+Focus: {focus}
+Repository: {evidence.request.repo_source}
+
+High-level concept cards:
+{_concept_map_block(code_map)}
+
+Selected files:
+{_second_pass_files_block(selected_files)}
+""".strip()
+
+
+def build_second_pass_round2_prompt(
+    evidence: EvidencePack,
+    round1_summary: str,
+    round1_links_json: str,
+    selected_files: list[SecondPassFileEvidence],
+) -> str:
+    focus = ", ".join(evidence.request.focus) or "architecture"
+    return f"""
+You are doing round-2 deep reading for Concept2Code tracing.
+Round 1 is already done. Your job is to revise or confirm the links using the additional files below.
+Work only from the local evidence below. Do not invent files or symbols.
+
+Output JSON only with the same shape as round 1.
+
+Focus: {focus}
+Repository: {evidence.request.repo_source}
+
+Round 1 summary:
+{round1_summary}
+
+Round 1 concept links:
+{round1_links_json}
+
+Round 2 additional files:
+{_second_pass_files_block(selected_files)}
+""".strip()
 
 
 def build_reflection_prompt(note: str, feedback: str = "") -> str:
@@ -227,6 +316,60 @@ def _ast_reason_lines(repo: RepoInfo) -> list[str]:
             if detail:
                 lines.append(f"- {title} :: {path} => {' | '.join(detail)}")
     return lines
+
+
+def _second_pass_block(second_pass: SecondPassEvidence | None) -> str:
+    if not second_pass:
+        return "Not run."
+    lines = ["Round 1 summary:", second_pass.round_1.summary or "No round-1 summary."]
+    lines.append("Round 1 concept links:")
+    for link in second_pass.round_1.concept_links[:8]:
+        lines.append(
+            f"- [{link.status}/{link.confidence}] {link.concept} -> files={', '.join(link.files) or '-'}; symbols={', '.join(link.symbols) or '-'}; reason={link.reason}"
+        )
+    if second_pass.round_2:
+        lines.append("Round 2 summary:")
+        lines.append(second_pass.round_2.summary or "No round-2 summary.")
+        lines.append("Round 2 concept links:")
+        for link in second_pass.round_2.concept_links[:8]:
+            lines.append(
+                f"- [{link.status}/{link.confidence}] {link.concept} -> files={', '.join(link.files) or '-'}; symbols={', '.join(link.symbols) or '-'}; reason={link.reason}"
+            )
+    lines.append("Final concept2code links:")
+    for link in second_pass.final_concept2code_links[:12]:
+        lines.append(
+            f"- round={link.round} [{link.status}/{link.confidence}] {link.concept} -> files={', '.join(link.files) or '-'}; symbols={', '.join(link.symbols) or '-'}; reason={link.reason}"
+        )
+    return "\n".join(lines)
+
+
+def _concept_map_block(code_map: list[CodeMapItem]) -> str:
+    lines: list[str] = []
+    for item in code_map[:10]:
+        refs: list[str] = []
+        for ref in item.code_refs[:4]:
+            if isinstance(ref, CodeSymbol):
+                refs.append(f"{ref.path}:{ref.line} {ref.name}")
+            elif isinstance(ref, CodeHit):
+                refs.append(f"{ref.path}:{ref.line} hit={ref.term}")
+        lines.append(f"- {item.concept}: {item.explanation} | refs={'; '.join(refs) or '-'}")
+    return "\n".join(lines) if lines else "- none"
+
+
+def _second_pass_files_block(selected_files: list[SecondPassFileEvidence]) -> str:
+    lines: list[str] = []
+    for item in selected_files:
+        lines.append(f"FILE: {item.path}")
+        lines.append(f"selected_reason: {item.selected_reason}")
+        if item.top_symbols:
+            lines.append(f"top_symbols: {', '.join(item.top_symbols[:8])}")
+        if item.local_evidence:
+            lines.append("local_evidence:")
+            lines.extend(f"- {value}" for value in item.local_evidence[:8])
+        lines.append("excerpt:")
+        lines.append(item.excerpt or "<empty>")
+        lines.append("")
+    return "\n".join(lines).strip() or "No files selected."
 
 
 def _symbol(symbol: CodeSymbol) -> str:

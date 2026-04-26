@@ -10,3 +10,5 @@ __pycache__/
 .study-agent/last-codex-output.md
 
 notes/*.tmp.md
+
+.study-agent/config.json
