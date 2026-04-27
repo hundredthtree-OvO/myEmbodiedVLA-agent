@@ -1,0 +1,28 @@
+{
+  "summary": "论文中显式出现的关注概念：Implicit Action Reasoner, kv-cache",
+  "concepts": [
+    {
+      "concept": "Implicit Action Reasoner",
+      "paper_status": "paper_explicit",
+      "summary": "`Implicit Action Reasoner` 在当前论文材料中有直接文本证据，后续应优先寻找代码中的实现或结构对应。",
+      "structure_roles": [
+        "action-output-like"
+      ],
+      "supporting_evidence": "(EAR) and Implicit Action Reasoner (IAR)."
+    },
+    {
+      "concept": "kv-cache",
+      "paper_status": "paper_explicit",
+      "summary": "`kv-cache` 在当前论文材料中有直接文本证据，后续应优先寻找代码中的实现或结构对应。",
+      "structure_roles": [],
+      "supporting_evidence": "Comparison of KV-cache interaction strategies in IAR."
+    }
+  ],
+  "questions": [
+    "论文里的 `Implicit Action Reasoner` 在代码里对应哪些实现位置？",
+    "代码里的 action generation / action decoding / action prediction 路径在哪里？",
+    "论文里的 `kv-cache` 在代码里对应哪些实现位置？"
+  ],
+  "key_figure_pages": [],
+  "figure_paths": []
+}

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .models import CodeHit, CodeMapItem, CodeSymbol, EvidencePack, RepoInfo, SecondPassEvidence, SecondPassFileEvidence
+from .models import CodeHit, CodeMapItem, CodeSymbol, EvidencePack, RepoInfo, SecondPassCodeSpan, SecondPassEvidence, SecondPassFileEvidence
 from .pdf import focus_excerpt
 from .taste_memory import read_taste_memory
 
@@ -44,6 +44,9 @@ Paper sections:
 
 Paper focus excerpt:
 {paper_excerpt}
+
+Paper understanding:
+{_paper_understanding_block(evidence)}
 
 Repository evidence:
 {_repo_block(evidence.repo)}
@@ -107,6 +110,9 @@ Repository: {evidence.request.repo_source}
 High-level concept cards:
 {_concept_map_block(code_map)}
 
+Paper understanding:
+{_paper_understanding_block(evidence)}
+
 Selected files:
 {_second_pass_files_block(selected_files)}
 """.strip()
@@ -134,6 +140,9 @@ Round 1 summary:
 
 Round 1 concept links:
 {round1_links_json}
+
+Paper understanding:
+{_paper_understanding_block(evidence)}
 
 Round 2 additional files:
 {_second_pass_files_block(selected_files)}
@@ -216,6 +225,30 @@ def _repo_block(repo: RepoInfo) -> str:
     if ast_debug_lines:
         lines.append("AST ranking debug:")
         lines.extend(ast_debug_lines)
+    return "\n".join(lines)
+
+
+def _paper_understanding_block(evidence: EvidencePack) -> str:
+    understanding = evidence.paper_understanding
+    if not understanding:
+        return "Not available."
+    lines = [understanding.summary or "No summary."]
+    if understanding.key_figure_pages:
+        pages = ", ".join(str(page) for page in understanding.key_figure_pages)
+        lines.append(f"key_figure_pages: {pages}")
+    if understanding.figure_paths:
+        lines.append("figure_assets:")
+        lines.extend(f"- {path}" for path in understanding.figure_paths[:6])
+    if understanding.concepts:
+        lines.append("paper_concepts:")
+        for concept in understanding.concepts[:8]:
+            role_text = ", ".join(concept.structure_roles) or "-"
+            lines.append(
+                f"- {concept.concept} [{concept.paper_status}] roles={role_text} summary={concept.summary}"
+            )
+    if understanding.questions:
+        lines.append("paper_questions:")
+        lines.extend(f"- {question}" for question in understanding.questions[:8])
     return "\n".join(lines)
 
 
@@ -366,10 +399,26 @@ def _second_pass_files_block(selected_files: list[SecondPassFileEvidence]) -> st
         if item.local_evidence:
             lines.append("local_evidence:")
             lines.extend(f"- {value}" for value in item.local_evidence[:8])
-        lines.append("excerpt:")
-        lines.append(item.excerpt or "<empty>")
+        if item.spans:
+            lines.append("spans:")
+            for span in item.spans[:4]:
+                lines.extend(_span_block(span))
+        else:
+            lines.append("excerpt:")
+            lines.append(item.excerpt or "<empty>")
         lines.append("")
     return "\n".join(lines).strip() or "No files selected."
+
+
+def _span_block(span: SecondPassCodeSpan) -> list[str]:
+    return [
+        f"- symbol: {span.symbol}",
+        f"  lines: {span.line_start}-{span.line_end}",
+        f"  score: {span.score}",
+        f"  reason: {span.reason}",
+        "  excerpt:",
+        *[f"    {line}" for line in (span.excerpt or "<empty>").splitlines()],
+    ]
 
 
 def _symbol(symbol: CodeSymbol) -> str:

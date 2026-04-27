@@ -534,3 +534,245 @@ round2_max_files = 4
    - `action_reasoning_fusion`
 
 这说明下一步的主线仍然是 second-pass 质量提升，而不是回到更重的排序系统重构。
+
+---
+
+## second-pass 真实回归补充（2026-04-27）
+
+这一天在完成 `symbol-aware / concept-aware` 片段抽取后，又额外做了两组真实仓库回归：
+
+- `ACoT-VLA`
+- `VLA-Adapter`
+
+目的不是重新验证第一遍排序，而是专门检查：
+
+- second-pass 是否已经从“文件前缀 excerpt”升级成“更贴近关键 symbol 的局部证据”
+- `concept2code.json` 的结论是否更稳、更像人工判断
+- 系统是否会因为补了更多局部证据而误把本来只该 `INFERRED` 的概念抬成 `CONFIRMED`
+
+### ACoT-VLA：相对上一版有明确进步
+
+和上一轮相比，这次最重要的进步不是“多确认了几个概念”，而是**证据基础明显变对了**。
+
+上一轮的问题更像：
+
+```text
+文件选对了
+-> 但 second-pass 主要看的是文件前缀
+-> 真正关键的 action path 没被吃进去
+```
+
+这次则已经能稳定抽到：
+
+- `sample_actions`
+- `compute_loss`
+- `action_out_proj` 附近逻辑
+- `Observation` 中的 `tokenized_prompt / tokenized_prompt_mask / token_ar_mask / token_loss_mask`
+
+因此，当前 `ACoT-VLA` 的 second-pass 结果更接近人工判断：
+
+- `policy` -> `CONFIRMED / high`
+- `architecture` -> `CONFIRMED / high`
+- `bridge_attention` -> `INFERRED / medium`
+- `reasoning_tokens` -> `INFERRED / medium`
+- `action_head` -> `INFERRED / medium`
+
+这里要特别强调：
+
+- `bridge_attention` 在 `ACoT-VLA` 中并不是一个 repo 内显式落地的命名模块，因此保持 `INFERRED` 是合理的
+- `reasoning_tokens` 也更像解释性概念，而不是代码里直接存在的 symbol，因此继续保持 `INFERRED` 也是合理的
+
+也就是说，这一版的提升主要体现在：
+
+- 不再因为证据不足而只会引用 schema 或 config 层面的弱证据
+- 能用 `sample_actions / compute_loss / action_out_proj` 这类更贴近 action generation 的代码证据支撑判断
+- 没有把本来应该保留不确定性的概念误抬成 `CONFIRMED`
+
+当前仍未完全解决的问题是：
+
+- `action_head` 依然只有 `INFERRED`
+- 根因不再是“文件选错”，而是 second-pass 虽然已经能打到 action path，但还没有直接打到“head 定义本身”这一层
+- 也就是说，现在的系统已经能证明“动作输出路径是核心的一部分”，但还没充分证明“这里存在一个可以直接命名的独立 action head 模块”
+
+结论：  
+`ACoT-VLA` 这轮可以判定为**相对上一版有明确进步，而且进步方向是对的**。
+
+### VLA-Adapter：second-pass 的泛化也成立
+
+在确认 `ACoT-VLA` 有明确进步后，又额外跑了 `VLA-Adapter`。
+
+这轮结果说明：新的片段抽取策略并不是只对 `ACoT-VLA` 有效，而是对另一类更典型的 VLA 仓库也能工作。
+
+当前 `VLA-Adapter` 的 merged concept links 大致是：
+
+- `architecture` -> `CONFIRMED / high`
+- `policy` -> `CONFIRMED / high`
+- `projector` -> `CONFIRMED / high`
+- `bridge_attention` -> `INFERRED / low`
+- `action_head` -> `INFERRED / medium`
+
+这组结果整体上是合理的：
+
+1. `architecture`
+   - `PrismaticVLM`
+   - `OpenVLA`
+   - `load_vla`
+   - `LLMBackbone`
+   - `ActionTokenizer`
+   这些文件和 symbol 已经能比较清楚地串成完整主链
+
+2. `policy`
+   - `OpenVLA.predict_action`
+   - `ActionTokenizer.__call__`
+   - `ActionTokenizer.decode_token_ids_to_actions`
+   现在已经能明确说明“从图像/指令到动作”的实际推理路径，而不只是泛泛说“模型会生成动作”
+
+3. `projector`
+   - `PrismaticVLM`
+   - `ProprioProjector.forward`
+   - `NoisyActionProjector.forward`
+   这说明 second-pass 已经能正确命中 projector 的具体实现，而不是只停留在模块名层面
+
+4. `bridge_attention`
+   - 继续保持 `INFERRED / low`
+   - 这也合理，因为当前本地证据更像“多模态融合进入 LLM token path”，而不是直接看到一个叫 `bridge_attention` 的模块
+
+5. `action_head`
+   - 仍然是 `INFERRED / medium`
+   - 但这次的 `INFERRED` 比之前更有内容，因为它已经能用：
+     - `OpenVLA.predict_action`
+     - `ActionTokenizer`
+     - `LLMBackbone`
+     说明“动作是通过 LLM token output + action token semantics 来实现的”
+   - 换句话说，这里保留 `INFERRED` 不是因为完全没抓到动作输出逻辑，而是因为当前证据更支持“复用 LM token head”，而不是“存在一个独立命名的 action_head 类”
+
+结论：  
+`VLA-Adapter` 这轮也说明 second-pass 的片段抽取改进具有**可泛化性**，不是只对 `ACoT-VLA` 的定制修补。
+
+### 当前阶段判断更新
+
+截至这轮回归，可以把 second-pass 的现状更新为：
+
+- 第一遍排序层已经基本够用，不再是当前主瓶颈
+- second-pass 已经从“能跑”进入“开始真正提升结论质量”的阶段
+- 新的 `symbol-aware / concept-aware` 片段抽取已经在真实仓库上证明有收益
+- 当前主要短板不再是“完全吃不到关键文件”，而是：
+  - 对某些概念能证明输出路径存在
+  - 但还不能总是直接打到“独立模块定义”这一层
+
+因此，后续最合理的主线仍然是：
+
+1. 继续提升 second-pass 的局部证据抽取与补片段策略
+2. 不再优先加重排序层
+3. 在此基础上再逐步考虑：
+   - evidence quality gate 的细化
+   - prompt budget
+   - repo cache
+   - session / memory 的后续积累
+
+---
+
+## P2.1 短计划：paper understanding pass + 结构问句驱动 second-pass
+
+结合这轮讨论，P2.1 不建议再走“继续补 concept template”的路线，而应该收成下面这条更稳的主线：
+
+### 目标
+
+让系统不再只靠 `focus` 关键词驱动 second-pass，而是先形成一层轻量的 paper-side understanding，再决定去代码里验证什么。
+
+### 核心改动
+
+1. 新增 `paper understanding pass`
+   - 从论文文本层和图示层抽：
+     - 核心主张
+     - 显式模块
+     - 关键待验证问题
+     - 论文概念是 `paper_explicit` 还是 `paper_implicit`
+
+2. second-pass 从“概念词命中”升级成“结构问句驱动”
+   - 例如对 `bridge_attention`，不再只找 `bridge/attention`
+   - 而是去问：
+     - query 在哪
+     - condition KV 在哪
+     - cross/self attention 在哪
+     - fusion/gating 在哪
+
+3. 输出层区分：
+   - `paper_status`
+   - `code_status`
+   让“论文显式、代码结构性落地”这种情况能够被更清楚地表达
+
+### 实现约束
+
+- 不走“大而全 concept template 库”
+- 不写 repo-specific 规则
+- 优先保留通用结构角色框架，再由每篇论文临时生成自己的结构假设
+- 论文读取后续走双通道：
+  - 文本层：`pypdf`
+  - 图示层：关键页/关键图截图 + 视觉理解
+  - OCR 仅做补充
+
+### 进入条件
+
+当前 second-pass 已经证明“片段抽取”有明显收益，因此 P2.1 可以作为下一轮最自然的延续，而不是继续把主要精力放在排序层上。
+
+### 当前进展补充（2026-04-27）
+
+这一轮已经把 P2.1 的基础设施部分先落下来了，重点是“论文侧工作目录 + 轻量 paper understanding”，而不是一开始就做很重的论文理解系统。
+
+已完成部分：
+
+1. 论文统一工作目录
+   - 同一篇论文现在会落到：
+     - `result/<paper_slug>/`
+   - 目录下已拆分出：
+     - `source/`
+     - `extracted/`
+     - `notes/`
+     - `outputs/`
+
+2. 文本层落盘
+   - 当前论文文本会保存到：
+     - `result/<paper_slug>/extracted/paper_text.md`
+
+3. 图示层基础缓存
+   - 如果输入是 PDF，会尝试：
+     - 基于页文本选关键页
+     - 初次渲染这些关键页为 PNG
+     - 保存到：
+       - `result/<paper_slug>/extracted/figures/`
+   - 当前只做页级渲染与缓存复用
+   - 暂时不上 OCR
+
+4. `paper understanding pass`
+   - 会生成：
+     - `result/<paper_slug>/notes/paper-understanding.md`
+     - `result/<paper_slug>/notes/paper-concepts.json`
+   - 当前版本已经能记录：
+     - focus 概念在论文里是 `paper_explicit / paper_implicit / user_defined`
+     - 概念摘要
+     - 结构角色提示
+     - 待验证问题
+
+5. pipeline 轻接入
+   - `paper understanding` 已接入 analyze 主流程
+   - second-pass 会把 `paper understanding` 里的概念/问题一起带入 prompt 与局部证据选择
+   - 最终笔记还会额外写回：
+     - `result/<paper_slug>/outputs/study-note.md`
+   - 如果本轮有 second-pass 结果，也会写回：
+     - `result/<paper_slug>/outputs/concept2code.json`
+
+当前仍未做的部分：
+
+- OCR
+- 自动精确裁图
+- 从图中自动抽模块框与箭头
+- 更强的 paper-side 结构图理解
+
+因此，这轮更准确的定位是：
+
+```text
+P2.1 的论文侧基础设施已经到位，
+paper understanding pass 已经轻量接入，
+下一步才是继续增强“论文理解如何更强地驱动 second-pass”。
+```

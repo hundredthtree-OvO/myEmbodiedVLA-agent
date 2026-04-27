@@ -56,6 +56,24 @@ class PaperInfo:
 
 
 @dataclass(frozen=True)
+class PaperConcept:
+    concept: str
+    paper_status: str
+    summary: str
+    structure_roles: list[str] = field(default_factory=list)
+    supporting_evidence: str = ""
+
+
+@dataclass(frozen=True)
+class PaperUnderstanding:
+    summary: str
+    concepts: list[PaperConcept]
+    questions: list[str]
+    key_figure_pages: list[int] = field(default_factory=list)
+    figure_paths: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class CodeSymbol:
     name: str
     kind: str
@@ -136,6 +154,7 @@ class EvidencePack:
     repo: RepoInfo
     profile: TasteProfile
     zotero_item: ZoteroItem | None = None
+    paper_understanding: PaperUnderstanding | None = None
 
 
 @dataclass(frozen=True)
@@ -154,12 +173,24 @@ class CodeMapItem:
 
 
 @dataclass(frozen=True)
+class SecondPassCodeSpan:
+    path: str
+    symbol: str
+    line_start: int
+    line_end: int
+    excerpt: str
+    reason: str
+    score: int
+
+
+@dataclass(frozen=True)
 class SecondPassFileEvidence:
     path: str
     selected_reason: str
     excerpt: str
     top_symbols: list[str]
     local_evidence: list[str]
+    spans: list[SecondPassCodeSpan] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -215,3 +246,4 @@ class StudyArtifact:
     code_map: list[CodeMapItem]
     reading_path: list[CodeSymbol]
     open_questions: list[str]
+    paper_understanding: PaperUnderstanding | None = None

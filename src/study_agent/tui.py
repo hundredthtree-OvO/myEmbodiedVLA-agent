@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -10,6 +8,7 @@ from .codex_client import CodexUnavailable, assert_codex_ready, run_codex
 from .config import SUPPORTED_MODELS, load_config, with_model
 from .github_check import DEFAULT_REPO_URL, check_github_clone
 from .models import StudyRequest
+from .paper_workspace import build_paper_slug
 from .pipeline import execute_analysis
 from .profile import load_profile
 from .progress import STAGES, TerminalProgress
@@ -23,7 +22,6 @@ class TuiDefaults:
     zotero_title: str
     repo: str
     focus: str
-    out: str
     model: str
     cleanup: str
     mode: str
@@ -64,31 +62,17 @@ def run_tui() -> int:
             print("Unknown action.\n")
 
 
-def default_form_values(last_request: dict | None) -> TuiDefaults:
+def default_form_values() -> TuiDefaults:
     config = load_config()
-    if not last_request:
-        return TuiDefaults(
-            paper="",
-            zotero_title="",
-            repo=".",
-            focus="",
-            out="notes/study-note.md",
-            model=config.model,
-            cleanup="none",
-            mode="paper-aligned",
-            engine="codex",
-        )
-    focus = ",".join(last_request.get("focus", []))
     return TuiDefaults(
-        paper=last_request.get("paper_source", "") or "",
-        zotero_title=last_request.get("zotero_title", "") or "",
-        repo=last_request.get("repo_source", "."),
-        focus=focus,
-        out=last_request.get("output_path", "notes/study-note.md"),
-        model=last_request.get("model", config.model),
+        paper="",
+        zotero_title="",
+        repo=".",
+        focus="",
+        model=config.model,
         cleanup="none",
-        mode=last_request.get("mode", "paper-aligned"),
-        engine=last_request.get("engine", "codex"),
+        mode="paper-aligned",
+        engine="codex",
     )
 
 
@@ -97,7 +81,7 @@ def cleanup_choices() -> list[str]:
 
 
 def next_step(current_step: str) -> str | None:
-    steps = ["input", "repo", "focus", "output", "cleanup", "run"]
+    steps = ["input", "repo", "focus", "cleanup", "run"]
     try:
         index = steps.index(current_step)
     except ValueError:
@@ -126,40 +110,29 @@ def _print_header(env: RuntimeEnvironment) -> None:
 
 
 def _run_analysis_wizard(env: RuntimeEnvironment) -> None:
-    last_request = _load_last_request()
-    defaults = default_form_values(last_request)
+    defaults = default_form_values()
 
-    print("\nStep 1/6 - Input source")
-    source_mode = _prompt_with_default(
-        "Source mode [zotero/paper/reuse]",
-        "reuse" if last_request else ("zotero" if defaults.zotero_title else "paper"),
-    ).lower()
+    print("\nStep 1/5 - Input source")
+    source_mode = _prompt_with_default("Source mode [zotero/paper]", "paper").lower()
 
     zotero_title = ""
     paper = ""
-    if source_mode == "reuse" and last_request:
-        zotero_title = defaults.zotero_title
-        paper = defaults.paper
-    elif source_mode == "zotero":
+    if source_mode == "zotero":
         zotero_title = _prompt_with_default("Zotero title", defaults.zotero_title)
         paper = _prompt_with_default("Paper path override (optional)", "")
     else:
         paper = _prompt_with_default("Paper path", defaults.paper)
 
-    print("\nStep 2/6 - Repository")
+    print("\nStep 2/5 - Repository")
     repo = _prompt_with_default("Repo path or GitHub URL", defaults.repo or ".")
 
-    print("\nStep 3/6 - Focus")
+    print("\nStep 3/5 - Focus")
     focus_text = _prompt_with_default("Focus (comma-separated)", defaults.focus)
     focus = [item.strip() for item in focus_text.split(",") if item.strip()]
 
-    print("\nStep 4/6 - Output")
-    suggested_out = defaults.out
-    if source_mode == "zotero" and zotero_title and focus:
-        suggested_out = _suggest_output_path(zotero_title, focus)
-    out = _prompt_with_default("Output path", suggested_out)
+    out = _fixed_output_path(paper, zotero_title)
 
-    print("\nStep 5/6 - Cleanup")
+    print("\nStep 4/5 - Cleanup")
     model = _prompt_with_default(f"Model [{'/'.join(SUPPORTED_MODELS)}]", defaults.model)
     while model not in SUPPORTED_MODELS:
         model = _prompt_with_default(f"Model [{'/'.join(SUPPORTED_MODELS)}]", defaults.model)
@@ -167,12 +140,12 @@ def _run_analysis_wizard(env: RuntimeEnvironment) -> None:
     while cleanup not in cleanup_choices():
         cleanup = _prompt_with_default("Cleanup [none/temp/repo/all]", "none")
 
-    print("\nStep 6/6 - Run")
+    print("\nStep 5/5 - Run")
     print(f"- paper: {paper or '(resolved from Zotero)'}")
     print(f"- zotero_title: {zotero_title or '(none)'}")
     print(f"- repo: {repo}")
     print(f"- focus: {', '.join(focus) or '(none)'}")
-    print(f"- out: {out}")
+    print(f"- output: {out} (fixed)")
     print(f"- model: {model}")
     print(f"- cleanup: {cleanup}")
     confirm = _prompt_with_default("Run analysis now? [y/n]", "y").lower()
@@ -256,28 +229,10 @@ def _open_last_session() -> None:
     print("")
 
 
-def _load_last_request() -> dict | None:
-    session = latest_session_dir()
-    if not session:
-        return None
-    request_path = session / "request.json"
-    if not request_path.exists():
-        return None
-    return json.loads(request_path.read_text(encoding="utf-8"))
-
-
-def _suggest_output_path(title: str, focus: list[str]) -> str:
-    slug = _slugify(title)
-    focus_slug = _slugify("-".join(focus))
-    if focus_slug:
-        return f"notes/{slug}-{focus_slug}.md"
-    return f"notes/{slug}.md"
-
-
-def _slugify(text: str) -> str:
-    lowered = text.lower().strip()
-    lowered = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "-", lowered)
-    return lowered.strip("-") or "study-note"
+def _fixed_output_path(paper: str, zotero_title: str) -> str:
+    title_hint = zotero_title or (Path(paper).stem if paper else "study-paper")
+    slug = build_paper_slug(paper or None, title_hint)
+    return f"result/{slug}/outputs/study-note.md"
 
 
 def _prompt_with_default(label: str, default: str) -> str:

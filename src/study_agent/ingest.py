@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -93,6 +94,36 @@ class RepositoryPrepareError(RuntimeError):
     pass
 
 
+@dataclass(frozen=True)
+class RepoInputs:
+    repo_path: Path
+    files: list[Path]
+    terms: list[str]
+
+
+@dataclass(frozen=True)
+class ScannedRepoEvidence:
+    rel_paths: list[str]
+    symbols: list[CodeSymbol]
+    hits: list[CodeHit]
+    config_hits: list[CodeHit]
+
+
+@dataclass(frozen=True)
+class ClassifiedRepoFiles:
+    file_groups: dict[str, list[str]]
+    candidate_lists: dict[str, list[str]]
+    merged_model_candidates: list[str]
+
+
+@dataclass(frozen=True)
+class RerankedRoleCandidates:
+    role_candidates: dict[str, list[str]]
+    candidate_reasons: dict[str, list[str]]
+    ast_candidate_reasons: dict[str, list[str]]
+    ast_file_tags: dict[str, list[str]]
+
+
 def ingest_paper(source: str) -> PaperInfo:
     path = Path(source)
     if path.exists() and path.suffix.lower() in TEXT_SUFFIXES:
@@ -131,14 +162,35 @@ def ingest_paper(source: str) -> PaperInfo:
 
 
 def ingest_repo(source: str, focus: list[str], cache_dir: Path = Path(".study-agent") / "repos") -> RepoInfo:
+    inputs = _prepare_repo_inputs(source, focus, cache_dir)
+    scanned = _scan_repo_evidence(inputs.repo_path, inputs.files, inputs.terms)
+    classified = _classify_repo_files(scanned.rel_paths)
+    reranked = _assign_and_rerank_role_candidates(inputs.repo_path, scanned.rel_paths, classified)
+    return _build_repo_info(
+        source,
+        inputs.repo_path,
+        len(inputs.files),
+        scanned,
+        classified,
+        reranked,
+    )
+
+
+def _prepare_repo_inputs(source: str, focus: list[str], cache_dir: Path) -> RepoInputs:
     repo_path = _prepare_repo(source, cache_dir)
-    files = list(_iter_repo_files(repo_path))
+    return RepoInputs(
+        repo_path=repo_path,
+        files=list(_iter_repo_files(repo_path)),
+        terms=_analysis_terms(focus),
+    )
+
+
+def _scan_repo_evidence(repo_path: Path, files: list[Path], terms: list[str]) -> ScannedRepoEvidence:
     symbols: list[CodeSymbol] = []
     hits: list[CodeHit] = []
     config_hits: list[CodeHit] = []
-
-    terms = _analysis_terms(focus)
     rel_paths: list[str] = []
+
     for file_path in files:
         rel = file_path.relative_to(repo_path).as_posix()
         rel_paths.append(rel)
@@ -150,14 +202,46 @@ def ingest_repo(source: str, focus: list[str], cache_dir: Path = Path(".study-ag
         if "config" in rel.lower() or file_path.suffix.lower() in CONFIG_SUFFIXES:
             config_hits.extend(file_hits)
 
+    return ScannedRepoEvidence(
+        rel_paths=rel_paths,
+        symbols=symbols,
+        hits=hits,
+        config_hits=config_hits,
+    )
+
+
+def _classify_repo_files(rel_paths: list[str]) -> ClassifiedRepoFiles:
     file_groups = _build_file_groups(rel_paths)
+    return ClassifiedRepoFiles(
+        file_groups=file_groups,
+        candidate_lists={
+            "docs": _candidate_list(file_groups, "docs"),
+            "train_scripts": _candidate_list(file_groups, "train_scripts"),
+            "inference_scripts": _candidate_list(file_groups, "inference_scripts"),
+            "configs": _candidate_list(file_groups, "configs"),
+            "core_model": _candidate_list(file_groups, "core_model"),
+            "deployment_policy": _candidate_list(file_groups, "deployment_policy"),
+            "loss_objective": _candidate_list(file_groups, "loss_objective"),
+            "data": _candidate_list(file_groups, "data"),
+            "env_robot_interface": _candidate_list(file_groups, "env_robot_interface"),
+            "utils": _candidate_list(file_groups, "utils"),
+        },
+        merged_model_candidates=_merged_model_candidates(file_groups),
+    )
+
+
+def _assign_and_rerank_role_candidates(
+    repo_path: Path,
+    rel_paths: list[str],
+    classified: ClassifiedRepoFiles,
+) -> RerankedRoleCandidates:
     repo_tokens = _repo_name_tokens(repo_path)
-    role_candidates, candidate_reasons = _build_role_candidates(rel_paths, file_groups, repo_tokens)
+    role_candidates, candidate_reasons = _build_role_candidates(rel_paths, classified.file_groups, repo_tokens)
     ast_index = build_python_ast_index(repo_path, rel_paths)
     reranked_architecture_entry, entry_ast_reasons, entry_ast_tags = rerank_architecture_entry_candidates(
         role_candidates["architecture_entry"],
-        _candidate_list(file_groups, "train_scripts", limit=8),
-        _candidate_list(file_groups, "inference_scripts", limit=8),
+        classified.candidate_lists["train_scripts"][:8],
+        classified.candidate_lists["inference_scripts"][:8],
         role_candidates["config_entry"][:8],
         role_candidates["deployment_entry"][:8],
         ast_index,
@@ -166,9 +250,9 @@ def ingest_repo(source: str, focus: list[str], cache_dir: Path = Path(".study-ag
     reranked_architecture_skeleton, skeleton_ast_reasons, skeleton_ast_tags = rerank_architecture_skeleton_candidates(
         role_candidates["architecture_skeleton"],
         role_candidates["architecture_entry"],
-        _candidate_list(file_groups, "core_model", limit=16),
-        _candidate_list(file_groups, "train_scripts", limit=8),
-        _candidate_list(file_groups, "inference_scripts", limit=8),
+        classified.candidate_lists["core_model"][:16],
+        classified.candidate_lists["train_scripts"][:8],
+        classified.candidate_lists["inference_scripts"][:8],
         role_candidates["config_entry"][:8],
         role_candidates["deployment_entry"][:8],
         ast_index,
@@ -177,7 +261,7 @@ def ingest_repo(source: str, focus: list[str], cache_dir: Path = Path(".study-ag
     reranked_architecture_component, component_ast_reasons, component_ast_tags = rerank_architecture_component_candidates(
         role_candidates["architecture_component"],
         role_candidates["architecture_skeleton"],
-        _candidate_list(file_groups, "core_model", limit=16),
+        classified.candidate_lists["core_model"][:16],
         ast_index,
     )
     role_candidates["architecture_component"] = reranked_architecture_component
@@ -186,46 +270,62 @@ def ingest_repo(source: str, focus: list[str], cache_dir: Path = Path(".study-ag
         _prefix_reason_map("architecture_skeleton", skeleton_ast_reasons),
         _prefix_reason_map("architecture_component", component_ast_reasons),
     )
-    all_ast_file_tags = {path: index.tags for path, index in ast_index.items() if index.tags}
-    all_ast_file_tags.update(entry_ast_tags)
-    all_ast_file_tags.update(skeleton_ast_tags)
-    all_ast_file_tags.update(component_ast_tags)
-    entry_candidates = _candidate_symbols(
-        _merge_role_entry_paths(role_candidates, file_groups),
-        symbols,
-        hits,
+    ast_file_tags = {path: index.tags for path, index in ast_index.items() if index.tags}
+    ast_file_tags.update(entry_ast_tags)
+    ast_file_tags.update(skeleton_ast_tags)
+    ast_file_tags.update(component_ast_tags)
+    return RerankedRoleCandidates(
+        role_candidates=role_candidates,
+        candidate_reasons=candidate_reasons,
+        ast_candidate_reasons=ast_candidate_reasons,
+        ast_file_tags=ast_file_tags,
     )
-    train_path = _symbols_by_names(symbols, TRAIN_NAMES)
-    infer_path = _symbols_by_names(symbols, INFER_NAMES)
+
+
+def _build_repo_info(
+    source: str,
+    repo_path: Path,
+    files_scanned: int,
+    scanned: ScannedRepoEvidence,
+    classified: ClassifiedRepoFiles,
+    reranked: RerankedRoleCandidates,
+) -> RepoInfo:
+    entry_candidates = _candidate_symbols(
+        _merge_role_entry_paths(reranked.role_candidates, classified.file_groups),
+        scanned.symbols,
+        scanned.hits,
+    )
+    train_path = _symbols_by_names(scanned.symbols, TRAIN_NAMES)
+    infer_path = _symbols_by_names(scanned.symbols, INFER_NAMES)
 
     return RepoInfo(
         source=source,
         path=repo_path,
-        files_scanned=len(files),
-        file_groups=file_groups,
+        files_scanned=files_scanned,
+        file_groups=classified.file_groups,
         entry_candidates=entry_candidates[:8],
-        architecture_entry_candidates=role_candidates["architecture_entry"][:8],
-        architecture_skeleton_candidates=role_candidates["architecture_skeleton"][:8],
-        architecture_component_candidates=role_candidates["architecture_component"][:8],
-        config_entry_candidates=role_candidates["config_entry"][:8],
-        deployment_entry_candidates=role_candidates["deployment_entry"][:8],
-        docs_candidates=_candidate_list(file_groups, "docs"),
-        train_candidates=_candidate_list(file_groups, "train_scripts"),
-        inference_candidates=_candidate_list(file_groups, "inference_scripts"),
-        config_candidates=_candidate_list(file_groups, "configs"),
-        core_model_candidates=_candidate_list(file_groups, "core_model"),
-        deployment_policy_candidates=_candidate_list(file_groups, "deployment_policy"),
-        model_candidates=_merged_model_candidates(file_groups),
-        loss_candidates=_candidate_list(file_groups, "loss_objective"),
-        data_candidates=_candidate_list(file_groups, "data"),
-        env_candidates=_candidate_list(file_groups, "env_robot_interface"),
-        utils_candidates=_candidate_list(file_groups, "utils"),
-        candidate_reasons=candidate_reasons,
-        ast_candidate_reasons=ast_candidate_reasons,
-        ast_file_tags=all_ast_file_tags,
-        symbols=symbols[:500],
-        hits=hits[:250],
-        config_hits=config_hits[:80],
+        architecture_entry_candidates=reranked.role_candidates["architecture_entry"][:8],
+        architecture_skeleton_candidates=reranked.role_candidates["architecture_skeleton"][:8],
+        architecture_component_candidates=reranked.role_candidates["architecture_component"][:8],
+        config_entry_candidates=reranked.role_candidates["config_entry"][:8],
+        deployment_entry_candidates=reranked.role_candidates["deployment_entry"][:8],
+        docs_candidates=classified.candidate_lists["docs"],
+        train_candidates=classified.candidate_lists["train_scripts"],
+        inference_candidates=classified.candidate_lists["inference_scripts"],
+        config_candidates=classified.candidate_lists["configs"],
+        core_model_candidates=classified.candidate_lists["core_model"],
+        deployment_policy_candidates=classified.candidate_lists["deployment_policy"],
+        model_candidates=classified.merged_model_candidates,
+        loss_candidates=classified.candidate_lists["loss_objective"],
+        data_candidates=classified.candidate_lists["data"],
+        env_candidates=classified.candidate_lists["env_robot_interface"],
+        utils_candidates=classified.candidate_lists["utils"],
+        candidate_reasons=reranked.candidate_reasons,
+        ast_candidate_reasons=reranked.ast_candidate_reasons,
+        ast_file_tags=reranked.ast_file_tags,
+        symbols=scanned.symbols[:500],
+        hits=scanned.hits[:250],
+        config_hits=scanned.config_hits[:80],
         train_path=train_path[:12],
         infer_path=infer_path[:12],
     )

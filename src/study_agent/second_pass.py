@@ -9,9 +9,9 @@ from .models import (
     CodeMapItem,
     CodeSymbol,
     Concept2CodeLink,
-    EvidencePack,
     MissingFileSuggestion,
     RepoInfo,
+    SecondPassCodeSpan,
     SecondPassEvidence,
     SecondPassFileEvidence,
     SecondPassRoundResult,
@@ -21,6 +21,8 @@ from .models import (
 
 ROUND1_MIN_FILES = 3
 FILE_EXCERPT_CHARS = 2800
+SPAN_EXCERPT_CHARS = 1200
+MAX_SPANS_PER_FILE = 4
 MAX_LOCAL_EVIDENCE = 8
 CONFIDENCE_LEVELS = {"high", "medium", "low"}
 STATUS_LEVELS = {"CONFIRMED": 3, "INFERRED": 2, "MISSING": 1}
@@ -33,6 +35,33 @@ SCRIPT_NAME_PATTERNS = (
     "demo",
 )
 HELPER_PATH_PARTS = {"utils", "common", "helpers", "ops", "io", "logging", "transforms"}
+STRUCTURE_METHOD_SCORES = {
+    "forward": 130,
+    "sample_actions": 130,
+    "predict_action": 130,
+    "predict": 120,
+    "infer": 120,
+    "compute_loss": 125,
+    "__init__": 110,
+    "create": 105,
+    "load": 100,
+    "from_dict": 95,
+    "to_dict": 95,
+}
+ROLE_PATTERNS: dict[str, tuple[tuple[str, int], ...]] = {
+    "output_path": (("_out_", 88), ("_head", 85), ("_decoder", 82), ("_predictor", 82), ("_proj", 78)),
+    "bridge_fusion": (("fusion", 84), ("bridge", 82), ("cross", 78), ("adapter", 74), ("extractor", 74)),
+    "token_path": (("token", 82), ("mask", 78), ("cache", 74), ("prompt", 72), ("position", 68)),
+    "architecture_role": (("backbone", 76), ("encoder", 76), ("decoder", 76), ("policy", 76), ("model", 70)),
+}
+CONCEPT_HINTS: dict[str, tuple[str, ...]] = {
+    "action": ("action", "sample", "predict", "_out_", "_head", "_proj"),
+    "head": ("_head", "_out_", "_proj", "predictor", "decoder"),
+    "reason": ("reason", "fusion", "cross", "extractor"),
+    "token": ("token", "mask", "prompt", "cache", "position"),
+    "bridge": ("bridge", "cross", "adapter", "extractor"),
+    "attention": ("attention", "attn", "mask", "query", "key", "value"),
+}
 
 
 def select_second_pass_files(
@@ -81,6 +110,7 @@ def select_second_pass_files(
 def extract_second_pass_evidence(
     repo: RepoInfo,
     selected_paths: list[str],
+    focus_terms: list[str] | None = None,
 ) -> list[SecondPassFileEvidence]:
     files: list[SecondPassFileEvidence] = []
     for path in selected_paths:
@@ -93,13 +123,15 @@ def extract_second_pass_evidence(
             continue
         top_symbols = [symbol.name for symbol in repo.symbols if symbol.path == path][:8]
         local_evidence = _collect_local_evidence(repo, path)
+        spans = _extract_ranked_spans_for_file(repo, path, text, focus_terms or [])
         files.append(
             SecondPassFileEvidence(
                 path=path,
                 selected_reason=_selected_reason(repo, path),
-                excerpt=_trim_excerpt(text),
+                excerpt=_compose_file_excerpt(text, spans),
                 top_symbols=top_symbols,
                 local_evidence=local_evidence[:MAX_LOCAL_EVIDENCE],
+                spans=spans,
             )
         )
     return files
@@ -182,6 +214,8 @@ def render_second_pass_markdown(result: SecondPassRoundResult) -> str:
         lines.append(f"  reason: {item.selected_reason}")
         if item.top_symbols:
             lines.append(f"  symbols: {', '.join(item.top_symbols[:6])}")
+        for span in item.spans[:3]:
+            lines.append(f"  span: {span.symbol} ({span.line_start}-{span.line_end}) [{span.score}] {span.reason}")
     lines.append("")
     lines.append("## Concept Links")
     if result.concept_links:
@@ -264,6 +298,155 @@ def _trim_excerpt(text: str) -> str:
     if len(compact) <= FILE_EXCERPT_CHARS:
         return compact
     return compact[:FILE_EXCERPT_CHARS].rstrip() + "\n..."
+
+
+def _compose_file_excerpt(text: str, spans: list[SecondPassCodeSpan]) -> str:
+    if spans:
+        chunks: list[str] = []
+        for span in spans[:3]:
+            chunks.append(
+                f"[{span.symbol} @ {span.line_start}-{span.line_end} | {span.reason}]\n{span.excerpt.strip()}"
+            )
+        return "\n\n".join(chunks)[:FILE_EXCERPT_CHARS]
+    return _trim_excerpt(text)
+
+
+def _extract_ranked_spans_for_file(
+    repo: RepoInfo,
+    path: str,
+    text: str,
+    focus_terms: list[str],
+) -> list[SecondPassCodeSpan]:
+    lines = text.splitlines()
+    symbols = [symbol for symbol in repo.symbols if symbol.path == path]
+    spans: list[SecondPassCodeSpan] = []
+
+    for symbol in symbols:
+        score, reason = _structure_score(symbol)
+        if score > 0:
+            spans.append(_span_from_line(lines, path, symbol.line, symbol.name, reason, score))
+
+    for hit in [item for item in repo.hits if item.path == path][:8]:
+        spans.append(_span_from_line(lines, path, hit.line, hit.term, f"focus_hit:{hit.term}", 92))
+
+    lowered_focus = [item.lower() for item in focus_terms if item]
+    for idx, line in enumerate(lines, start=1):
+        lowered_line = line.lower()
+        pattern_score, pattern_reason = _role_pattern_score(lowered_line)
+        if pattern_score > 0:
+            spans.append(_span_from_line(lines, path, idx, _infer_symbol_name(line), pattern_reason, pattern_score))
+        concept_score, concept_reason = _concept_hint_score(lowered_line, lowered_focus)
+        if concept_score > 0:
+            spans.append(_span_from_line(lines, path, idx, _infer_symbol_name(line), concept_reason, concept_score))
+
+    ranked = _dedupe_and_rank_spans(spans)
+    return ranked[:MAX_SPANS_PER_FILE]
+
+
+def _structure_score(symbol: CodeSymbol) -> tuple[int, str]:
+    lowered = symbol.name.lower()
+    if symbol.kind == "class":
+        if any(token in lowered for token, _ in ROLE_PATTERNS["architecture_role"]):
+            return 118, "structure:architecture_class"
+        return 108, "structure:top_level_class"
+    if lowered in STRUCTURE_METHOD_SCORES:
+        return STRUCTURE_METHOD_SCORES[lowered], f"structure:method:{lowered}"
+    if any(lowered.startswith(prefix) for prefix in ("sample_", "predict_", "infer_")):
+        return 122, "structure:output_method"
+    if any(lowered.startswith(prefix) for prefix in ("compute_", "build_", "load_")):
+        return 108, "structure:lifecycle_method"
+    if any(part in lowered for part in ("forward", "decoder", "encoder", "policy", "model")):
+        return 100, "structure:role_like_symbol"
+    return 0, ""
+
+
+def _role_pattern_score(lowered_line: str) -> tuple[int, str]:
+    best_score = 0
+    best_reason = ""
+    for group, patterns in ROLE_PATTERNS.items():
+        for pattern, score in patterns:
+            if pattern in lowered_line and score > best_score:
+                best_score = score
+                best_reason = f"pattern:{group}:{pattern}"
+    return best_score, best_reason
+
+
+def _concept_hint_score(lowered_line: str, lowered_focus: list[str]) -> tuple[int, str]:
+    best_score = 0
+    best_reason = ""
+    for focus in lowered_focus:
+        if not focus:
+            continue
+        matched = False
+        for key, hints in CONCEPT_HINTS.items():
+            if key in focus:
+                for hint in hints:
+                    if hint in lowered_line:
+                        matched = True
+                        if 66 > best_score:
+                            best_score = 66
+                            best_reason = f"concept_hint:{focus}:{hint}"
+        if not matched and focus in lowered_line and 60 > best_score:
+            best_score = 60
+            best_reason = f"concept_hint:{focus}"
+    return best_score, best_reason
+
+
+def _span_from_line(
+    lines: list[str],
+    path: str,
+    line_number: int,
+    symbol_name: str,
+    reason: str,
+    score: int,
+) -> SecondPassCodeSpan:
+    start = max(1, line_number - 8)
+    end = min(len(lines), line_number + 18)
+    excerpt = "\n".join(lines[start - 1 : end]).strip()
+    if len(excerpt) > SPAN_EXCERPT_CHARS:
+        excerpt = excerpt[:SPAN_EXCERPT_CHARS].rstrip() + "\n..."
+    return SecondPassCodeSpan(
+        path=path,
+        symbol=symbol_name or Path(path).stem,
+        line_start=start,
+        line_end=end,
+        excerpt=excerpt,
+        reason=reason,
+        score=score,
+    )
+
+
+def _infer_symbol_name(line: str) -> str:
+    stripped = line.strip()
+    if stripped.startswith("def "):
+        return stripped[4:].split("(", 1)[0].strip()
+    if stripped.startswith("class "):
+        return stripped[6:].split("(", 1)[0].split(":", 1)[0].strip()
+    if "=" in stripped:
+        return stripped.split("=", 1)[0].strip()
+    return stripped[:48] or "line"
+
+
+def _dedupe_and_rank_spans(spans: list[SecondPassCodeSpan]) -> list[SecondPassCodeSpan]:
+    by_key: dict[tuple[str, int, int, str], SecondPassCodeSpan] = {}
+    for span in spans:
+        key = (span.path, span.line_start, span.line_end, span.symbol)
+        existing = by_key.get(key)
+        if existing is None or span.score > existing.score:
+            by_key[key] = span
+    ranked = sorted(by_key.values(), key=lambda item: (-item.score, item.line_start, item.symbol.lower()))
+    selected: list[SecondPassCodeSpan] = []
+    for span in ranked:
+        if any(_overlaps(span, existing) for existing in selected):
+            continue
+        selected.append(span)
+    return selected
+
+
+def _overlaps(left: SecondPassCodeSpan, right: SecondPassCodeSpan) -> bool:
+    if left.path != right.path:
+        return False
+    return not (left.line_end < right.line_start or right.line_end < left.line_start)
 
 
 def _extract_json_object(raw_text: str) -> dict:
@@ -363,7 +546,6 @@ def _is_existing_repo_file(repo: RepoInfo, path: str) -> bool:
 
 
 def _is_noise_candidate(path: str) -> bool:
-    lowered = path.lower()
     name = Path(path).name.lower()
     parts = {part.lower() for part in Path(path).parts}
     if any(part in HELPER_PATH_PARTS for part in parts):

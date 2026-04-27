@@ -19,10 +19,54 @@ from study_agent.models import (
 from study_agent.pipeline import execute_analysis
 from study_agent.planner import build_plan
 from study_agent.profile import load_profile
-from study_agent.second_pass import validate_round2_candidates
+from study_agent.second_pass import extract_second_pass_evidence, validate_round2_candidates
 
 
 class SecondPassTests(unittest.TestCase):
+    def test_extract_second_pass_evidence_prefers_structure_spans_over_file_prefix(self) -> None:
+        tmp_path = Path.cwd() / ".tmp" / "test_second_pass_spans"
+        repo = tmp_path / "repo"
+        (repo / "models").mkdir(parents=True, exist_ok=True)
+        filler = "\n".join(f"# filler {idx}" for idx in range(80))
+        (repo / "models" / "policy.py").write_text(
+            "class Policy:\n"
+            "    def __init__(self):\n"
+            "        self.encoder = None\n"
+            f"{filler}\n"
+            "    def compute_loss(self):\n"
+            "        return 0\n"
+            "\n"
+            "    def sample_actions(self):\n"
+            "        self.action_out_proj = 1\n"
+            "        return self.action_out_proj\n",
+            encoding="utf-8",
+        )
+        (repo / "train.py").write_text(
+            "from models.policy import Policy\n"
+            "policy = Policy()\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "paper.md").write_text("# Demo\n\nAction path.\n", encoding="utf-8")
+
+        request = StudyRequest(
+            paper_source=str(tmp_path / "paper.md"),
+            repo_source=str(repo),
+            focus=["action_head", "architecture"],
+            output_path=tmp_path / "out.md",
+            engine="offline",
+        )
+        plan = build_plan(request, load_profile())
+        repo_info = ingest_repo(request.repo_source, plan.focus_terms)
+
+        evidence = extract_second_pass_evidence(repo_info, ["models/policy.py"], request.focus)
+
+        self.assertEqual(len(evidence), 1)
+        file_evidence = evidence[0]
+        self.assertGreaterEqual(len(file_evidence.spans), 1)
+        span_text = "\n".join(span.excerpt for span in file_evidence.spans)
+        self.assertIn("sample_actions", span_text)
+        self.assertIn("action_out_proj", span_text)
+
     def test_validate_round2_candidates_filters_noise_and_missing_files(self) -> None:
         tmp_path = Path.cwd() / ".tmp" / "test_second_pass_validate"
         repo = tmp_path / "repo"
