@@ -9,13 +9,14 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from .ast_index import build_python_ast_index
+from .code_parser import PythonAstCodeParser
 from .graph_rank import (
     rerank_architecture_component_candidates,
     rerank_architecture_entry_candidates,
     rerank_architecture_skeleton_candidates,
 )
-from .models import CodeHit, CodeSymbol, PaperInfo, PaperSection, RepoInfo
-from .pdf import extract_pdf_text
+from ..models import CodeHit, CodeSymbol, PaperInfo, PaperSection, RepoInfo
+from ..paper.pdf import extract_pdf_document
 
 
 TEXT_SUFFIXES = {".md", ".txt", ".tex", ".rst"}
@@ -132,7 +133,8 @@ def ingest_paper(source: str) -> PaperInfo:
         return PaperInfo(source=source, title=title, sections=_split_sections(text), raw_excerpt=text[:6000], text=text)
 
     if path.exists() and path.suffix.lower() == ".pdf":
-        text = extract_pdf_text(path)
+        pdf_document = extract_pdf_document(path)
+        text = pdf_document.text
         return PaperInfo(
             source=source,
             title=_extract_title(text) or path.stem,
@@ -196,7 +198,7 @@ def _scan_repo_evidence(repo_path: Path, files: list[Path], terms: list[str]) ->
         rel_paths.append(rel)
         text = file_path.read_text(encoding="utf-8", errors="replace")
         if file_path.suffix.lower() in CODE_SUFFIXES:
-            symbols.extend(_extract_symbols(rel, text))
+            symbols.extend(_extract_symbols(rel, file_path.suffix.lower(), text))
         file_hits = _find_hits(rel, text, terms)
         hits.extend(file_hits)
         if "config" in rel.lower() or file_path.suffix.lower() in CONFIG_SUFFIXES:
@@ -459,8 +461,23 @@ def _analysis_terms(focus: list[str]) -> list[str]:
     return sorted({term for term in focus + defaults if term})
 
 
-def _extract_symbols(rel: str, text: str) -> list[CodeSymbol]:
+def _extract_symbols(rel: str, suffix: str, text: str) -> list[CodeSymbol]:
     symbols: list[CodeSymbol] = []
+    if suffix == ".py":
+        parsed = PYTHON_CODE_PARSER.parse_file(Path(rel), text)
+        for symbol in parsed.symbols:
+            evidence_line = text.splitlines()[symbol.line_start - 1].strip() if symbol.line_start > 0 else ""
+            symbols.append(
+                CodeSymbol(
+                    name=symbol.name,
+                    kind=symbol.kind,
+                    path=rel,
+                    line=symbol.line_start,
+                    evidence=evidence_line,
+                )
+            )
+        return symbols
+
     for idx, line in enumerate(text.splitlines(), start=1):
         stripped = line.strip()
         py_match = re.match(r"(class|def)\s+([A-Za-z_][A-Za-z0-9_]*)", stripped)
@@ -1108,3 +1125,4 @@ def _pattern_matches(pattern: str, lowered_path: str, tokens: set[str], parts: t
     if pattern.startswith("."):
         return lowered_path.endswith(pattern)
     return pattern in tokens
+PYTHON_CODE_PARSER = PythonAstCodeParser()

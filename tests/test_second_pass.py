@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from study_agent.config import load_config
-from study_agent.ingest import ingest_repo
+from study_agent.repo import ingest_repo
 from study_agent.models import (
     AgentConfig,
     MissingFileSuggestion,

@@ -56,6 +56,13 @@ class PaperInfo:
 
 
 @dataclass(frozen=True)
+class PaperClaim:
+    claim: str
+    claim_type: str
+    supporting_evidence: str = ""
+
+
+@dataclass(frozen=True)
 class PaperConcept:
     concept: str
     paper_status: str
@@ -67,6 +74,7 @@ class PaperConcept:
 @dataclass(frozen=True)
 class PaperUnderstanding:
     summary: str
+    claims: list[PaperClaim]
     concepts: list[PaperConcept]
     questions: list[str]
     key_figure_pages: list[int] = field(default_factory=list)

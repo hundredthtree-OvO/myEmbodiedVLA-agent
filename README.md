@@ -47,7 +47,7 @@ uv sync
 
 Python 包依赖：
 
-- `pypdf`：通过 `uv sync` 自动安装，用于 PDF 文本提取
+- `PyMuPDF`：通过 `uv sync` 自动安装，用于 PDF 文本提取与关键页渲染
 - `pytest`：开发依赖，用于本地测试
 
 系统依赖：
@@ -58,7 +58,7 @@ Python 包依赖：
 
 可选系统依赖：
 
-- `pdftotext`：当本地 `pypdf` 不可用或 PDF 提取失败时，作为额外 fallback 使用
+- 当前 PDF 管线默认只依赖 `PyMuPDF`，不再使用 `pypdf / pdftotext` fallback
 
 如果你想先做一轮环境自检，至少确认这几项：
 
@@ -192,6 +192,24 @@ uv run python study_agent_cli.py cleanup --target all
 - `CONFIRMED`
 - `INFERRED`
 - `[Missing Evidence]`
+
+## 当前目录结构
+
+核心代码已经按领域拆分到子包，后续继续重构时优先在这些目录内演进：
+
+- `src/study_agent/paper/`
+  - 论文工作目录管理
+  - PDF 文本提取与关键页渲染
+  - `claim / concept / question` 级论文理解
+- `src/study_agent/repo/`
+  - repo 扫描、文件分类、角色排序
+  - 代码解析与 architecture rerank
+- `src/study_agent/graph/`
+  - 图数据模型
+  - 图存储抽象
+  - 图查询抽象
+- `src/study_agent/analyzer/`
+  - 当前仍在使用的 paper/code 分析拼装层
 
 ## Codex 与 Zotero
 

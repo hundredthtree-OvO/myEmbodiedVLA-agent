@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from study_agent.ingest import ingest_repo
+from study_agent.repo import ingest_repo
 from study_agent.prompt_builder import _repo_block
 
 

@@ -8,7 +8,7 @@ from .codex_client import CodexUnavailable, assert_codex_ready, run_codex
 from .config import SUPPORTED_MODELS, load_config, with_model
 from .github_check import DEFAULT_REPO_URL, check_github_clone
 from .models import StudyRequest
-from .paper_workspace import build_paper_slug
+from .paper import build_paper_slug
 from .pipeline import execute_analysis
 from .profile import load_profile
 from .progress import STAGES, TerminalProgress

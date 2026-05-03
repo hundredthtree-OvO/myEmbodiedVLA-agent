@@ -776,3 +776,27 @@ P2.1 的论文侧基础设施已经到位，
 paper understanding pass 已经轻量接入，
 下一步才是继续增强“论文理解如何更强地驱动 second-pass”。
 ```
+
+---
+
+## 2026-05-03 重构补充
+
+这轮做了三件基础重构：
+
+1. PDF 管线切换到 `PyMuPDF`
+   - 论文文本提取和关键页渲染统一走同一后端
+   - 不再把 `pypdf / pdftotext` 作为当前主路径
+
+2. `src/study_agent` 目录按领域拆分
+   - `paper/`：论文工作目录、PDF、论文理解
+   - `repo/`：repo ingestion、代码解析、排序
+   - `graph/`：图模型、图存储、图查询抽象
+
+3. `paper_understanding` 升级为 `claim / concept / question` 抽取器
+   - `focus` 退到补充和加权角色
+   - 系统先抽论文 claim、显式概念、隐式概念，再生成待验证问题
+
+当前结论：
+
+- 这轮已经把论文侧上游从“关键词主导”推进到“论文理解主导的过渡态”
+- 下一步主线仍然是继续增强 paper-side understanding，并把 second-pass 逐步迁到 span / 局部子图级证据

@@ -5,12 +5,17 @@ description = "A CLI study agent for paper-to-code alignment notes."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-  "pypdf>=5.4.0",
+  "PyMuPDF>=1.24.0",
 ]
 
 [project.optional-dependencies]
 dev = [
   "pytest>=7.4",
+]
+graph = [
+  "kuzu>=0.8.0",
+  "tree-sitter>=0.24.0",
+  "tree-sitter-python>=0.23.6",
 ]
 
 [project.scripts]

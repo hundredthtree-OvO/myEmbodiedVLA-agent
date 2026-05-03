@@ -7,12 +7,11 @@ from unittest.mock import patch
 from study_agent.analyzer.code import build_code_map, build_open_questions, build_reading_path
 from study_agent.analyzer.paper import analyze_paper
 from study_agent.composer import compose_markdown
-from study_agent.ingest import ingest_paper, ingest_repo
-from study_agent.paper_understanding import build_paper_understanding
-from study_agent.paper_workspace import build_paper_slug
 from study_agent.models import AgentConfig, StudyArtifact, StudyRequest, TasteProfile
+from study_agent.paper import build_paper_slug, build_paper_understanding
 from study_agent.pipeline import execute_analysis
 from study_agent.planner import build_plan
+from study_agent.repo import ingest_paper, ingest_repo
 
 
 class PipelineTests(unittest.TestCase):

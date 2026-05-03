@@ -7,7 +7,7 @@ import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from .models import PaperInfo, PaperUnderstanding, SecondPassEvidence
+from ..models import PaperInfo, PaperUnderstanding, SecondPassEvidence
 
 
 RESULT_ROOT = Path("result")
@@ -113,6 +113,15 @@ def render_paper_understanding_markdown(understanding: PaperUnderstanding) -> st
         lines.append("## Figure Assets")
         lines.extend(f"- {path}" for path in understanding.figure_paths)
         lines.append("")
+    lines.append("## Claims")
+    if understanding.claims:
+        for claim in understanding.claims:
+            lines.append(f"- [{claim.claim_type}] {claim.claim}")
+            if claim.supporting_evidence:
+                lines.append(f"  - 证据: {claim.supporting_evidence}")
+    else:
+        lines.append("- none")
+    lines.append("")
     lines.append("## Concepts")
     if understanding.concepts:
         for concept in understanding.concepts:

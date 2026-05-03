@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from study_agent.ingest import RepositoryPrepareError, ingest_repo
+from study_agent.repo import RepositoryPrepareError, ingest_repo
 
 
 class IngestErrorTests(unittest.TestCase):
@@ -23,9 +23,9 @@ class IngestErrorTests(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 128, "", "Failed to connect to github.com port 443")
             raise AssertionError(f"Unexpected command: {command}")
 
-        with mock.patch("study_agent.ingest.shutil.which", return_value="git"):
+        with mock.patch("study_agent.repo.ingest.shutil.which", return_value="git"):
             with mock.patch.dict(os.environ, {"HTTP_PROXY": "", "HTTPS_PROXY": ""}, clear=False):
-                with mock.patch("study_agent.ingest.subprocess.run", side_effect=fake_run):
+                with mock.patch("study_agent.repo.ingest.subprocess.run", side_effect=fake_run):
                     with self.assertRaises(RepositoryPrepareError) as ctx:
                         ingest_repo("https://github.com/example/repo.git", ["world_model"], cache_dir)
 

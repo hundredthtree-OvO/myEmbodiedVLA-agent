@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .models import CodeHit, CodeMapItem, CodeSymbol, EvidencePack, RepoInfo, SecondPassCodeSpan, SecondPassEvidence, SecondPassFileEvidence
-from .pdf import focus_excerpt
+from .paper import focus_excerpt
 from .taste_memory import read_taste_memory
 
 
@@ -239,6 +239,10 @@ def _paper_understanding_block(evidence: EvidencePack) -> str:
     if understanding.figure_paths:
         lines.append("figure_assets:")
         lines.extend(f"- {path}" for path in understanding.figure_paths[:6])
+    if understanding.claims:
+        lines.append("paper_claims:")
+        for claim in understanding.claims[:6]:
+            lines.append(f"- [{claim.claim_type}] {claim.claim}")
     if understanding.concepts:
         lines.append("paper_concepts:")
         for concept in understanding.concepts[:8]:

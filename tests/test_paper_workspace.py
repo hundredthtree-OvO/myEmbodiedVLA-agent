@@ -5,14 +5,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 from study_agent.models import PaperInfo, PaperSection
-from study_agent.paper_understanding import build_paper_understanding
-from study_agent.paper_workspace import (
+from study_agent.paper import (
     build_paper_slug,
+    build_paper_understanding,
     prepare_paper_workspace,
+    render_pdf_pages,
     write_paper_text,
     write_paper_understanding,
 )
-from study_agent.pdf import render_pdf_pages
 
 
 class PaperWorkspaceTests(unittest.TestCase):
@@ -43,6 +43,23 @@ class PaperWorkspaceTests(unittest.TestCase):
         self.assertTrue((workspace.notes_dir / "paper-understanding.md").exists())
         self.assertTrue((workspace.notes_dir / "paper-concepts.json").exists())
 
+    def test_build_paper_understanding_extracts_claims_and_explicit_concepts(self) -> None:
+        paper = PaperInfo(
+            source="demo",
+            title="Bridge Attention for VLA",
+            sections=[PaperSection("Method", "We propose Bridge Attention (BA) for action prediction.")],
+            raw_excerpt="We propose Bridge Attention (BA) for action prediction. Our method uses action queries and condition KV.",
+            text="We propose Bridge Attention (BA) for action prediction. Our method uses action queries and condition KV.",
+        )
+
+        understanding = build_paper_understanding(paper, [])
+
+        self.assertGreaterEqual(len(understanding.claims), 1)
+        self.assertIn("Bridge Attention", [concept.concept for concept in understanding.concepts])
+        bridge = next(concept for concept in understanding.concepts if concept.concept == "Bridge Attention")
+        self.assertEqual(bridge.paper_status, "paper_explicit")
+        self.assertGreaterEqual(len(understanding.questions), 1)
+
     def test_render_pdf_pages_reuses_existing_png(self) -> None:
         tmp_root = Path.cwd() / ".tmp" / "test_render_pdf_pages"
         pdf_path = tmp_root / "paper.pdf"
@@ -52,11 +69,11 @@ class PaperWorkspaceTests(unittest.TestCase):
         existing = output_dir / "page-03.png"
         existing.write_bytes(b"png")
 
-        with patch("study_agent.pdf.subprocess.run") as mock_run:
+        with patch("study_agent.paper.pdf._open_pdf_document") as mock_document:
             rendered = render_pdf_pages(pdf_path, [3], output_dir)
 
         self.assertEqual(rendered, [existing])
-        self.assertEqual(mock_run.call_count, 0)
+        self.assertEqual(mock_document.call_count, 1)
 
     def test_render_pdf_pages_calls_pdftoppm_for_missing_page(self) -> None:
         tmp_root = Path.cwd() / ".tmp" / "test_render_pdf_pages_missing"
@@ -68,16 +85,34 @@ class PaperWorkspaceTests(unittest.TestCase):
         if target.exists():
             target.unlink()
 
-        def _fake_run(cmd, **kwargs):
-            target = Path(cmd[-1]).with_suffix(".png")
-            target.write_bytes(b"png")
-            return None
+        class _FakePixmap:
+            def save(self, destination):
+                Path(destination).write_bytes(b"png")
 
-        with patch("study_agent.pdf.shutil.which", return_value="pdftoppm"):
-            with patch("study_agent.pdf.subprocess.run", side_effect=_fake_run) as mock_run:
+        class _FakePage:
+            def get_pixmap(self, matrix, alpha):  # noqa: ARG002
+                return _FakePixmap()
+
+        class _FakeDocument:
+            page_count = 2
+
+            def load_page(self, index):
+                self.loaded_index = index
+                return _FakePage()
+
+            def close(self):
+                return None
+
+        class _FakeFitz:
+            @staticmethod
+            def Matrix(x, y):  # noqa: ARG004
+                return object()
+
+        with patch("study_agent.paper.pdf._import_fitz", return_value=_FakeFitz()):
+            with patch("study_agent.paper.pdf._open_pdf_document", return_value=_FakeDocument()) as mock_open:
                 rendered = render_pdf_pages(pdf_path, [2], output_dir)
 
-        self.assertEqual(mock_run.call_count, 1)
+        self.assertEqual(mock_open.call_count, 1)
         self.assertEqual(rendered, [output_dir / "page-02.png"])
 
 

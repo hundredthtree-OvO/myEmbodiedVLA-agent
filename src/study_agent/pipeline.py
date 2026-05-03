@@ -9,10 +9,7 @@ from .cleanup import cleanup_after_analyze
 from .codex_client import CodexUnavailable, assert_codex_ready, run_codex
 from .composer import compose_markdown
 from .config import default_zotero_data_dir, load_config, with_model
-from .ingest import RepositoryPrepareError, ingest_paper, ingest_repo
 from .models import EvidencePack, StudyArtifact, StudyRequest
-from .paper_understanding import build_paper_understanding, understanding_focus_terms
-from .paper_workspace import prepare_paper_workspace, save_workspace_outputs, write_paper_text, write_paper_understanding
 from .planner import build_plan
 from .profile import load_profile
 from .progress import NullProgress, ProgressSink
@@ -21,8 +18,19 @@ from .prompt_builder import (
     build_second_pass_round2_prompt,
     build_study_prompt,
 )
-from .pdf import extract_pdf_page_texts, render_pdf_pages, select_key_figure_pages
 from .quality_gate import evaluate_evidence_quality, prepend_quality_gate_note
+from .paper import (
+    build_paper_understanding,
+    extract_pdf_document,
+    prepare_paper_workspace,
+    render_pdf_pages,
+    save_workspace_outputs,
+    select_key_figure_pages,
+    understanding_focus_terms,
+    write_paper_text,
+    write_paper_understanding,
+)
+from .repo import RepositoryPrepareError, ingest_paper, ingest_repo
 from .second_pass import (
     extract_second_pass_evidence,
     merge_second_pass_results,
@@ -95,9 +103,16 @@ def execute_analysis(
     paper_source_path = Path(final_request.paper_source) if final_request.paper_source else None
     if paper_source_path and paper_source_path.exists() and paper_source_path.suffix.lower() == ".pdf":
         try:
-            page_texts = extract_pdf_page_texts(paper_source_path)
+            pdf_document = extract_pdf_document(paper_source_path)
+            write_paper_text(paper_workspace, pdf_document.text)
+            page_texts = pdf_document.page_texts
             key_figure_pages = select_key_figure_pages(page_texts, plan.focus_terms)
             figure_paths = render_pdf_pages(paper_source_path, key_figure_pages, paper_workspace.figures_dir)
+            if not figure_paths:
+                progress.info(
+                    "Paper figure rendering produced no PNGs; "
+                    f"selected_pages={key_figure_pages or '[]'} backend={pdf_document.page_backend}"
+                )
         except Exception as exc:  # pragma: no cover - defensive fallback for local rendering issues
             progress.info(f"Paper figure rendering skipped: {exc}")
     paper_understanding = build_paper_understanding(
