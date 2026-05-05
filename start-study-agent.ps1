@@ -14,4 +14,6 @@ if (-not $env:PYTHONPATH) {
     $env:PYTHONPATH = Join-Path $workspace "src"
 }
 
-uv run python study_agent_cli.py tui
+Write-Host "Code-first VLA research copilot"
+Write-Host "Use 'uv run python study_agent_cli.py --help' to see the new commands."
+uv run python study_agent_cli.py --help

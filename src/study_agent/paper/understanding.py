@@ -4,8 +4,8 @@ from collections.abc import Iterable
 import re
 from pathlib import Path
 
-from ..analyzer.shared import sentence_with_term
 from ..models import PaperClaim, PaperConcept, PaperInfo, PaperUnderstanding
+from ..text_utils import sentence_with_term
 
 
 CLAIM_CUES: tuple[tuple[str, str], ...] = (
@@ -70,7 +70,7 @@ GENERIC_CONCEPTS = {
 
 def build_paper_understanding(
     paper: PaperInfo,
-    focus_terms: list[str],
+    focus_terms: list[str] | None,
     figure_paths: list[Path] | None = None,
     key_figure_pages: list[int] | None = None,
 ) -> PaperUnderstanding:
@@ -79,14 +79,19 @@ def build_paper_understanding(
     source_text = _paper_text(paper)
     sentences = _split_sentences(source_text)
     claims = _extract_claims(sentences)
-    concepts = _extract_concepts(paper, source_text, sentences, focus_terms)
+    concepts = _extract_concepts(paper, source_text, sentences, focus_terms or [])
     questions = _build_questions(claims, concepts)
     summary = _paper_summary(paper, claims, concepts)
+    named_modules_or_concepts = [concept.concept for concept in concepts]
+    design_rationales = [claim.claim for claim in claims if claim.claim_type in {"proposal", "architecture", "method"}]
     return PaperUnderstanding(
         summary=summary,
         claims=claims,
         concepts=concepts,
         questions=questions[:12],
+        named_modules_or_concepts=named_modules_or_concepts[:12],
+        design_rationales=design_rationales[:8],
+        open_alignment_questions=questions[:8],
         key_figure_pages=list(key_figure_pages),
         figure_paths=[str(path.as_posix()) for path in figure_paths],
     )

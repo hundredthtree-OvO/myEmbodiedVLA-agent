@@ -1047,7 +1047,7 @@ def _candidate_symbols(paths: list[str], symbols: list[CodeSymbol], hits: list[C
                     kind="file",
                     path=path,
                     line=chosen_hit.line,
-                    evidence=chosen_hit.text or "role-aware file candidate",
+                    evidence=chosen_hit.text or "repo file candidate",
                 )
             )
             continue
@@ -1058,7 +1058,7 @@ def _candidate_symbols(paths: list[str], symbols: list[CodeSymbol], hits: list[C
                 kind="file",
                 path=path,
                 line=1,
-                evidence="role-aware file candidate",
+                evidence="repo file candidate",
             )
         )
     return selected

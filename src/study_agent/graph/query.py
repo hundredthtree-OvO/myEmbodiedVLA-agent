@@ -49,6 +49,8 @@ class DefaultGraphQueryService(GraphQueryService):
             "STRUCTURALLY_SUPPORTED_BY",
             "MISSING_EVIDENCE_FOR",
             "CONTRADICTED_BY",
+            "supports_claim",
+            "mentioned_in_paper",
         }
         edges = self.store.get_outgoing_edges(concept_ref, allowed)
         if not statuses:

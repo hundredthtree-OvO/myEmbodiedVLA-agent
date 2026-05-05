@@ -1,7 +1,7 @@
 [project]
 name = "vla-study-agent"
 version = "0.1.0"
-description = "A CLI study agent for paper-to-code alignment notes."
+description = "A code-first CLI research copilot for VLA repositories."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

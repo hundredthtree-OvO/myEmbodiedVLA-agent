@@ -1,4 +1,4 @@
-"""Local-first VLA paper-to-code study agent."""
+"""Local-first code-first VLA research copilot."""
 
 __all__ = ["__version__"]
 

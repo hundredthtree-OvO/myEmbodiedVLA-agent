@@ -112,8 +112,7 @@ def render_pdf_pages(path: Path, pages: list[int], output_dir: Path, dpi: int = 
         output_dir.mkdir(parents=True, exist_ok=True)
         rendered: list[Path] = []
         zoom = max(dpi, 72) / 72.0
-        fitz = _import_fitz()
-        matrix = fitz.Matrix(zoom, zoom)
+        matrix = None
 
         for page_number in pages:
             target = output_dir / f"page-{page_number:02d}.png"
@@ -122,6 +121,9 @@ def render_pdf_pages(path: Path, pages: list[int], output_dir: Path, dpi: int = 
                 continue
             if page_number < 1 or page_number > document.page_count:
                 continue
+            if matrix is None:
+                fitz = _import_fitz()
+                matrix = fitz.Matrix(zoom, zoom)
             page = document.load_page(page_number - 1)
             pixmap = page.get_pixmap(matrix=matrix, alpha=False)
             pixmap.save(target)

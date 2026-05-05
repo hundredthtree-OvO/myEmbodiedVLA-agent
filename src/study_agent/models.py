@@ -3,43 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-
-DEFAULT_SECTIONS = [
-    "任务与输入",
-    "论文核心概念解释",
-    "仓库入口与主干候选",
-    "论文模块 -> 代码模块映射",
-    "训练/推理主路径",
-    "关注点专项",
-    "建议阅读顺序",
-    "未确认点",
-]
-
-
-@dataclass(frozen=True)
-class StudyRequest:
-    paper_source: str | None
-    repo_source: str
-    focus: list[str]
-    output_path: Path
-    mode: str = "paper-aligned"
-    engine: str = "codex"
-    zotero_title: str | None = None
-    model: str | None = None
-
-
-@dataclass
-class TasteProfile:
-    analysis_template: str = "paper-aligned"
-    preferred_sections: list[str] = field(default_factory=lambda: list(DEFAULT_SECTIONS))
-    focus_bias: list[str] = field(default_factory=list)
-    reading_order_style: str = "entrypoint-first"
-    evidence_style: str = "CONFIRMED/INFERRED"
-    terminology_preferences: dict[str, str] = field(default_factory=dict)
-    depth_default: str = "module-function"
-    verbosity: str = "medium"
-
-
 @dataclass(frozen=True)
 class PaperSection:
     title: str
@@ -77,6 +40,9 @@ class PaperUnderstanding:
     claims: list[PaperClaim]
     concepts: list[PaperConcept]
     questions: list[str]
+    named_modules_or_concepts: list[str] = field(default_factory=list)
+    design_rationales: list[str] = field(default_factory=list)
+    open_alignment_questions: list[str] = field(default_factory=list)
     key_figure_pages: list[int] = field(default_factory=list)
     figure_paths: list[str] = field(default_factory=list)
 
@@ -147,111 +113,4 @@ class AgentConfig:
     api_url: str
     model: str
     timeout_seconds: int = 300
-    max_evidence_chars: int = 60000
-    max_history_examples: int = 3
     zotero_data_dir: Path | None = None
-    second_pass_enabled: bool = True
-    second_pass_round1_max_files: int = 8
-    second_pass_round2_max_files: int = 4
-
-
-@dataclass(frozen=True)
-class EvidencePack:
-    request: StudyRequest
-    paper: PaperInfo
-    repo: RepoInfo
-    profile: TasteProfile
-    zotero_item: ZoteroItem | None = None
-    paper_understanding: PaperUnderstanding | None = None
-
-
-@dataclass(frozen=True)
-class ConceptCard:
-    name: str
-    summary: str
-    evidence: str
-
-
-@dataclass(frozen=True)
-class CodeMapItem:
-    concept: str
-    code_refs: list[CodeSymbol | CodeHit]
-    explanation: str
-    evidence: str
-
-
-@dataclass(frozen=True)
-class SecondPassCodeSpan:
-    path: str
-    symbol: str
-    line_start: int
-    line_end: int
-    excerpt: str
-    reason: str
-    score: int
-
-
-@dataclass(frozen=True)
-class SecondPassFileEvidence:
-    path: str
-    selected_reason: str
-    excerpt: str
-    top_symbols: list[str]
-    local_evidence: list[str]
-    spans: list[SecondPassCodeSpan] = field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class MissingFileSuggestion:
-    path: str
-    reason: str
-
-
-@dataclass(frozen=True)
-class UncertainLink:
-    concept: str
-    reason: str
-    candidate_files: list[str] = field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class Concept2CodeLink:
-    concept: str
-    status: str
-    files: list[str]
-    symbols: list[str]
-    evidence_span: str
-    confidence: str
-    reason: str
-    round: int
-
-
-@dataclass(frozen=True)
-class SecondPassRoundResult:
-    round_id: int
-    summary: str
-    files: list[SecondPassFileEvidence]
-    concept_links: list[Concept2CodeLink]
-    uncertain_links: list[UncertainLink]
-    missing_files: list[MissingFileSuggestion]
-
-
-@dataclass(frozen=True)
-class SecondPassEvidence:
-    round_1: SecondPassRoundResult
-    round_2: SecondPassRoundResult | None
-    final_concept2code_links: list[Concept2CodeLink]
-
-
-@dataclass(frozen=True)
-class StudyArtifact:
-    request: StudyRequest
-    paper: PaperInfo
-    repo: RepoInfo
-    profile: TasteProfile
-    summary: str
-    concept_cards: list[ConceptCard]
-    code_map: list[CodeMapItem]
-    reading_path: list[CodeSymbol]
-    open_questions: list[str]
-    paper_understanding: PaperUnderstanding | None = None

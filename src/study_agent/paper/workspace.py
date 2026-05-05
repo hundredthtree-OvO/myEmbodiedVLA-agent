@@ -7,7 +7,7 @@ import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from ..models import PaperInfo, PaperUnderstanding, SecondPassEvidence
+from ..models import PaperInfo, PaperUnderstanding
 
 
 RESULT_ROOT = Path("result")
@@ -94,14 +94,8 @@ def write_paper_understanding(workspace: PaperWorkspace, understanding: PaperUnd
 def save_workspace_outputs(
     workspace: PaperWorkspace,
     markdown: str,
-    second_pass: SecondPassEvidence | None = None,
 ) -> None:
-    (workspace.outputs_dir / "study-note.md").write_text(markdown, encoding="utf-8")
-    if second_pass:
-        (workspace.outputs_dir / "concept2code.json").write_text(
-            json.dumps(_safe_asdict(second_pass.final_concept2code_links), ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
+    (workspace.outputs_dir / "paper-summary.md").write_text(markdown, encoding="utf-8")
 
 
 def render_paper_understanding_markdown(understanding: PaperUnderstanding) -> str:
@@ -134,6 +128,10 @@ def render_paper_understanding_markdown(understanding: PaperUnderstanding) -> st
     else:
         lines.append("- none")
     lines.append("")
+    if understanding.design_rationales:
+        lines.append("## Design Rationales")
+        lines.extend(f"- {item}" for item in understanding.design_rationales[:8])
+        lines.append("")
     lines.append("## Questions")
     if understanding.questions:
         lines.extend(f"- {question}" for question in understanding.questions)
